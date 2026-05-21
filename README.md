@@ -75,6 +75,8 @@ Nothing is sent off-device — parsing and matching happen entirely in the conte
 
 On pages with multiple questions, letter and number candidates are applied to every group on the page; use a quoted phrase from a specific option to target one question.
 
+Text-input fill: if the pasted answer contains a final computed value (e.g. "L = 200 mH" or "The answer is 500"), the extension also locates `<input>` / `<textarea>` / contenteditable fields on the page and populates them in document order. The first computed value goes into the first text field, the second into the second, and so on. Selection (radio/checkbox) and text fill run in the same Apply click — status reads `Selected N, Filled M`.
+
 ### Resizing
 
 Drag the left edge of the panel to resize between 280 and 640 pixels wide.
