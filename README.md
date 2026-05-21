@@ -42,6 +42,31 @@ Reload the extension from the extensions page after any manifest change.
 
 The list of patterns that mark a line as junk lives in `lib/cleaner.js` as `JUNK_LINE_PATTERNS`. Add or remove regexes there. Each pattern is tested against a single line; if any matches, the whole line is dropped.
 
+## Sidebar UI
+
+Clipboard Cleaner adds a floating panel on the right side of any Coursera page. When closed, a small pill button sits in the lower-right corner — click it to reopen.
+
+### Copied Text tab
+
+Every time you copy text from the page, the cleaned plain-text result appears in this tab. Click **Copy** to re-copy the cleaned text from the panel itself. Empty / success / error states are shown inline.
+
+### Auto Typer tab
+
+Auto Typer types text into the editable field you focused most recently. To use:
+
+1. Click into the input, textarea, or contenteditable field you want typed into.
+2. Open the panel and switch to **Auto Typer**.
+3. Paste or type the source text into the textarea.
+4. Choose a profile (Balanced Natural / Careful Writer / Fast Drafter), a speed (Slow / Normal / Fast), and whether to simulate humanlike typos with corrections.
+5. Click **Start**. Confirm in the modal — Auto Typer will not run until you confirm.
+6. While typing you can **Pause / Resume** or **Stop** at any time. If the focused field changes mid-run, Auto Typer halts automatically.
+
+The Auto Typer only writes to the editable element you focused before clicking Start; it cannot run hidden or without an explicit user action.
+
+### Resizing
+
+Drag the left edge of the panel to resize between 280 and 640 pixels wide.
+
 ## Running the tests
 
 Requires Node.js 20 or newer (for the built-in test runner).
