@@ -408,3 +408,64 @@ test('matchTextInputs: each match carries reason "computedValue"', () => {
   });
   assert.equal(matches[0].reason, 'computedValue');
 });
+
+const { applyTextMatches } = require('../lib/answer-matcher.js');
+
+test('applyTextMatches: fills an <input type="text"> with the value', () => {
+  const d = dom('<input type="text" id="t">');
+  const el = d.getElementById('t');
+  const summary = applyTextMatches([{ el: el, value: '500 turns', reason: 'computedValue' }]);
+  assert.equal(summary.filled, 1);
+  assert.equal(summary.skipped, 0);
+  assert.equal(el.value, '500 turns');
+});
+
+test('applyTextMatches: fills a <textarea> with the value', () => {
+  const d = dom('<textarea id="t"></textarea>');
+  const el = d.getElementById('t');
+  applyTextMatches([{ el: el, value: 'hello', reason: 'computedValue' }]);
+  assert.equal(el.value, 'hello');
+});
+
+test('applyTextMatches: fills a contenteditable element with the value', () => {
+  const d = dom('<div id="ce" contenteditable="true"></div>');
+  const el = d.getElementById('ce');
+  applyTextMatches([{ el: el, value: '6.3 MHz', reason: 'computedValue' }]);
+  assert.equal(el.textContent, '6.3 MHz');
+});
+
+test('applyTextMatches: dispatches input and change events on <input>', () => {
+  const d = dom('<input type="text" id="t">');
+  const el = d.getElementById('t');
+  const fired = [];
+  el.addEventListener('input', function () { fired.push('input'); });
+  el.addEventListener('change', function () { fired.push('change'); });
+  applyTextMatches([{ el: el, value: 'x', reason: 'computedValue' }]);
+  assert.deepEqual(fired, ['input', 'change']);
+});
+
+test('applyTextMatches: dispatches input event on contenteditable', () => {
+  const d = dom('<div id="ce" contenteditable="true"></div>');
+  const el = d.getElementById('ce');
+  let inputCount = 0;
+  el.addEventListener('input', function () { inputCount += 1; });
+  applyTextMatches([{ el: el, value: 'x', reason: 'computedValue' }]);
+  assert.equal(inputCount, 1);
+});
+
+test('applyTextMatches: skips detached elements', () => {
+  const d = dom('<input type="text" id="t">');
+  const el = d.getElementById('t');
+  el.remove();
+  const summary = applyTextMatches([{ el: el, value: 'x', reason: 'computedValue' }]);
+  assert.equal(summary.filled, 0);
+  assert.equal(summary.skipped, 1);
+});
+
+test('applyTextMatches: returns { filled: 0, skipped: 0 } for empty list', () => {
+  assert.deepEqual(applyTextMatches([]), { filled: 0, skipped: 0 });
+});
+
+test('applyTextMatches: returns { filled: 0, skipped: 0 } for non-array input', () => {
+  assert.deepEqual(applyTextMatches(null), { filled: 0, skipped: 0 });
+});
