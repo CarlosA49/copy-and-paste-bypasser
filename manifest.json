@@ -20,6 +20,7 @@
         "lib/html-cleaner.js",
         "lib/typing-engine.js",
         "lib/typing-injector.js",
+        "lib/value-normalize.js",
         "lib/answer-parser.js",
         "lib/answer-matcher.js",
         "lib/sidebar.js",
