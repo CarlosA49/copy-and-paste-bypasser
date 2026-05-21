@@ -261,3 +261,22 @@ test('preserves <p>I understand how capacitors work.</p>', () => {
   assert.match(cleanHtml, /<p>I understand how capacitors work\.<\/p>/);
   assert.equal(cleanText, 'I understand how capacitors work.');
 });
+
+test('zero-width chars (U+200B/200C/200D/FEFF) are stripped from plain text', () => {
+  // Construct input with literal zero-width chars between visible words.
+  const ZW = '​‌‍﻿';
+  const input = '<p>Hello' + ZW + ' world.</p>';
+  const { cleanText } = cleanSelectionHtml(input);
+  assert.equal(cleanText, 'Hello world.');
+});
+
+test('zero-width-only line between paragraphs collapses cleanly', () => {
+  const ZW = '​';
+  const input = '<p>Above.</p><p>' + ZW + '</p><p>1 point</p>';
+  const { cleanText } = cleanSelectionHtml(input);
+  // The middle paragraph collapses to nothing, leaving the regular
+  // paragraph break.
+  assert.match(cleanText, /Above\.\s+1 point/);
+  // And the zero-width char is gone.
+  assert.doesNotMatch(cleanText, /[​-‍﻿]/);
+});
