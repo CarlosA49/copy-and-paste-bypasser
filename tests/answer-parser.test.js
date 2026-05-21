@@ -280,3 +280,29 @@ test('parseAnswerText: labeled and inline coexist (labeled wins for same value)'
   assert.equal(out.computedValues.length, 1);
   assert.equal(out.computedValues[0].confidence, 'high');
 });
+
+test('parseAnswerText: H is NOT a letter candidate when a high-confidence numeric answer with unit H is present', () => {
+  const out = parseAnswerText('The answer to question 1 is 1.0000×10^-6 H.');
+  assert.deepEqual(out.letters, []);
+  assert.equal(out.computedValues.length, 1);
+});
+
+test('parseAnswerText: H IS still a letter candidate when no high-confidence numeric answer present', () => {
+  // No labeled/list/inline numeric answer — just a letter mention.
+  const out = parseAnswerText('Pick H, please.');
+  assert.deepEqual(out.letters, ['H']);
+});
+
+test('parseAnswerText: non-unit letter (B) is preserved even when numeric answer present', () => {
+  const out = parseAnswerText('The answer is 1.0e-6 H. Also pick B.');
+  // Single-letter physics units suppressed (H), but B is unaffected.
+  assert.ok(out.letters.indexOf('H') === -1);
+  assert.ok(out.letters.indexOf('B') !== -1);
+});
+
+test('parseAnswerText: medium-confidence numeric answer (list) ALSO suppresses unit letters', () => {
+  // Suppression triggers on high OR medium confidence — list-format answers
+  // are explicit enough to override letter false positives.
+  const out = parseAnswerText('1. 1.0e-6 H\n2. 0.0352 H');
+  assert.deepEqual(out.letters, []);
+});
