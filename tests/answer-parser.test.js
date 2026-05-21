@@ -545,3 +545,11 @@ test('cleanFillValue: trims surrounding whitespace', () => {
 test('cleanFillValue: loops to strip chained prefixes (Final: + answer is + =)', () => {
   assert.equal(cleanFillValue('Final: answer is = 1.0e-6 H'), '1.0e-6 H');
 });
+
+test('cleanFillValue: prefix-only input returns "" (locks the empty-result contract)', () => {
+  // After stripping "answer is" there is nothing left. The caller (buildVariants)
+  // treats empty results as "no variant" and skips the field with reason 'no-variants'.
+  assert.equal(cleanFillValue('answer is'), '');
+  assert.equal(cleanFillValue('Final:'), '');
+  assert.equal(cleanFillValue('='), '');
+});

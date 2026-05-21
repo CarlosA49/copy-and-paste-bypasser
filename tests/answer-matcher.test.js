@@ -745,3 +745,26 @@ test('regression: plain-decimal variant for 0.0352 does not emit float-imprecisi
   assert.equal(summary.filled, 1);
   assert.equal(el.value, '0.0352');
 });
+
+test('regression: third variant (plain-decimal) is the one that wins (pinned via variantIndex)', () => {
+  // Construct a scenario where ONLY the plain-decimal expansion succeeds:
+  //   value = "1.0e-6 H"
+  //   variant 0 "1.0e-6 H"   → has letters → rejected
+  //   variant 1 "1.0e-6"     → has letter 'e' → rejected
+  //   variant 2 "0.000001"   → no letters → accepted
+  // The results array exposes variantIndex so we can assert variant 2 was used.
+  const d = dom('<input type="text" id="t">');
+  const el = d.getElementById('t');
+  let stored = '';
+  Object.defineProperty(el, 'value', {
+    configurable: true,
+    get: function () { return stored; },
+    set: function (v) { stored = /[A-Za-z]/.test(v) ? '' : String(v); },
+  });
+  const summary = applyTextMatches([{ el: el, value: '1.0e-6 H', reason: 'computedValue' }]);
+  assert.equal(summary.filled, 1);
+  assert.equal(summary.results.length, 1);
+  // The successful variant index must be 2 (the plain-decimal expansion).
+  assert.equal(summary.results[0].variantIndex, 2);
+  assert.equal(summary.results[0].valueUsed, '0.000001');
+});
