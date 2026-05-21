@@ -768,3 +768,48 @@ test('regression: third variant (plain-decimal) is the one that wins (pinned via
   assert.equal(summary.results[0].variantIndex, 2);
   assert.equal(summary.results[0].valueUsed, '0.000001');
 });
+
+test('applyTextMatches: setter that throws is treated as a rejected variant; pipeline continues', () => {
+  // First variant set throws (simulates the type="number" DOMException). The
+  // pipeline must NOT propagate the throw — it must record a reason and try
+  // the next variant.
+  const d = dom('<input type="text" id="t">');
+  const el = d.getElementById('t');
+  let attempts = 0;
+  let stored = '';
+  Object.defineProperty(el, 'value', {
+    configurable: true,
+    get: function () { return stored; },
+    set: function (v) {
+      attempts += 1;
+      // First set attempt throws; subsequent attempts succeed.
+      if (attempts === 1) throw new Error('value rejected by field');
+      stored = String(v);
+    },
+  });
+  let threw = false;
+  let summary;
+  try {
+    summary = applyTextMatches([{ el: el, value: '6.0781e-10 H', reason: 'computedValue' }]);
+  } catch (_) {
+    threw = true;
+  }
+  assert.equal(threw, false, 'applyTextMatches must not let setter throws escape');
+  assert.equal(summary.filled, 1, 'fallback variant should succeed');
+  // Variant 0 (the full string) threw; variant 1 ("6.0781e-10") was accepted.
+  assert.equal(el.value, '6.0781e-10');
+});
+
+test('applyTextMatches: setter that ALWAYS throws — field is skipped with reason "rejected-throw"', () => {
+  const d = dom('<input type="text" id="t">');
+  const el = d.getElementById('t');
+  Object.defineProperty(el, 'value', {
+    configurable: true,
+    get: function () { return ''; },
+    set: function () { throw new Error('always throws'); },
+  });
+  const summary = applyTextMatches([{ el: el, value: '1 H', reason: 'computedValue' }]);
+  assert.equal(summary.filled, 0);
+  assert.equal(summary.skipped, 1);
+  assert.equal(summary.reasons[0], 'rejected-throw');
+});
