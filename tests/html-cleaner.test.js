@@ -82,3 +82,27 @@ test('junk inside a <section>: only the junk child block is removed, the section
   assert.match(cleanHtml, /<p>Keep two\.<\/p>/);
   assert.doesNotMatch(cleanHtml, /Coursera/i);
 });
+
+// --- Pass 3: Attribute stripping -------------------------------------------
+
+test('cosmetic attributes (class, style, id, data-*, aria-*, role) are stripped', () => {
+  const input = '<p class="x" style="color:red" id="z" data-foo="bar" aria-hidden="true" role="text">Hi</p>';
+  const { cleanHtml } = cleanSelectionHtml(input);
+  assert.match(cleanHtml, /^<p>Hi<\/p>$/);
+});
+
+test('allow-list attributes survive: <a href title>, <ol start>, <td colspan>, <img alt>', () => {
+  const input =
+    '<a href="/x" title="t" class="y">link</a>' +
+    '<ol start="3" class="z"><li>a</li></ol>' +
+    '<table><tr><td colspan="2" style="bold">cell</td></tr></table>' +
+    '<img src="/i.png" alt="pic" width="10" height="20" data-x="y">';
+  const { cleanHtml } = cleanSelectionHtml(input);
+  assert.match(cleanHtml, /<a href="\/x" title="t">link<\/a>/);
+  assert.match(cleanHtml, /<ol start="3">/);
+  assert.match(cleanHtml, /<td colspan="2">cell<\/td>/);
+  assert.match(cleanHtml, /<img src="\/i\.png" alt="pic" width="10" height="20">/);
+  assert.doesNotMatch(cleanHtml, /class=/);
+  assert.doesNotMatch(cleanHtml, /style=/);
+  assert.doesNotMatch(cleanHtml, /data-/);
+});
