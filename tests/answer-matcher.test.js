@@ -219,3 +219,81 @@ test('matchCandidates: radio tie-break selects lowest index regardless of letter
   assert.equal(r.length, 1);
   assert.equal(r[0].option.index, 0); // A (index 0) wins, not B (index 1)
 });
+
+const { applyMatches } = require('../lib/answer-matcher.js');
+
+test('applyMatches: checks the matched native radio input', () => {
+  const d = dom(
+    '<label><input type="radio" name="q1"> Alpha</label>' +
+    '<label><input type="radio" name="q1"> Beta</label>'
+  );
+  const g = findOptionGroups(d.body)[0];
+  const matches = matchCandidates([g], { letters: ['B'], numbers: [], quotedSnippets: [], rawText: '' });
+  const summary = applyMatches(matches);
+  assert.equal(summary.selected, 1);
+  assert.equal(summary.skipped, 0);
+  // Find the radio after Beta's label text
+  const radios = d.querySelectorAll('input[type="radio"]');
+  assert.equal(radios[0].checked, false);
+  assert.equal(radios[1].checked, true);
+});
+
+test('applyMatches: checks multiple matched checkboxes', () => {
+  const d = dom(
+    '<label><input type="checkbox" name="m"> One</label>' +
+    '<label><input type="checkbox" name="m"> Two</label>' +
+    '<label><input type="checkbox" name="m"> Three</label>'
+  );
+  const g = findOptionGroups(d.body)[0];
+  const matches = matchCandidates([g], { letters: ['A', 'C'], numbers: [], quotedSnippets: [], rawText: '' });
+  const summary = applyMatches(matches);
+  assert.equal(summary.selected, 2);
+  const boxes = d.querySelectorAll('input[type="checkbox"]');
+  assert.equal(boxes[0].checked, true);
+  assert.equal(boxes[1].checked, false);
+  assert.equal(boxes[2].checked, true);
+});
+
+test('applyMatches: dispatches change and click events on each selected input', () => {
+  const d = dom('<label><input type="radio" name="q1"> Alpha</label>');
+  const g = findOptionGroups(d.body)[0];
+  const inp = d.querySelector('input');
+  let changes = 0, clicks = 0;
+  inp.addEventListener('change', function () { changes += 1; });
+  inp.addEventListener('click', function () { clicks += 1; });
+  const matches = matchCandidates([g], { letters: ['A'], numbers: [], quotedSnippets: [], rawText: '' });
+  applyMatches(matches);
+  assert.equal(changes, 1);
+  assert.equal(clicks, 1);
+});
+
+test('applyMatches: skips matches whose element is detached', () => {
+  const d = dom('<label><input type="radio" name="q1"> Alpha</label>');
+  const g = findOptionGroups(d.body)[0];
+  const matches = matchCandidates([g], { letters: ['A'], numbers: [], quotedSnippets: [], rawText: '' });
+  d.querySelector('input').remove();
+  const summary = applyMatches(matches);
+  assert.equal(summary.selected, 0);
+  assert.equal(summary.skipped, 1);
+});
+
+test('applyMatches: clicks ARIA role=radio elements (no native input)', () => {
+  const d = dom(
+    '<div role="radiogroup">' +
+      '<div role="radio" aria-checked="false">X</div>' +
+      '<div role="radio" aria-checked="false">Y</div>' +
+    '</div>'
+  );
+  const g = findOptionGroups(d.body)[0];
+  let clicks = 0;
+  d.querySelectorAll('[role="radio"]').forEach(function (el) { el.addEventListener('click', function () { clicks += 1; }); });
+  const matches = matchCandidates([g], { letters: ['B'], numbers: [], quotedSnippets: [], rawText: '' });
+  const summary = applyMatches(matches);
+  assert.equal(summary.selected, 1);
+  assert.equal(clicks, 1);
+});
+
+test('applyMatches: returns { selected: 0, skipped: 0 } for empty match list', () => {
+  const summary = applyMatches([]);
+  assert.deepEqual(summary, { selected: 0, skipped: 0 });
+});
