@@ -92,22 +92,22 @@ test('parseAnswerText: deduplicates quoted snippets case-insensitively', () => {
 
 test('parseAnswerText: extracts plain "answer is X" computed value', () => {
   const out = parseAnswerText('The answer is 500 turns.');
-  assert.deepEqual(out.computedValues, [{ value: '500', unit: 'turns', raw: '500 turns' }]);
+  assert.deepEqual(out.computedValues, [{ value: '500', unit: 'turns', raw: '500 turns', confidence: 'high', label: null }]);
 });
 
 test('parseAnswerText: extracts numeric-only "answer is X" (no unit)', () => {
   const out = parseAnswerText('Therefore the answer is 42.');
-  assert.deepEqual(out.computedValues, [{ value: '42', unit: '', raw: '42' }]);
+  assert.deepEqual(out.computedValues, [{ value: '42', unit: '', raw: '42', confidence: 'high', label: null }]);
 });
 
 test('parseAnswerText: extracts "L = 200 mH" via the equals-with-unit pattern', () => {
   const out = parseAnswerText('After integrating, L = 200 mH.');
-  assert.deepEqual(out.computedValues, [{ value: '200', unit: 'mH', raw: '200 mH' }]);
+  assert.deepEqual(out.computedValues, [{ value: '200', unit: 'mH', raw: '200 mH', confidence: 'low', label: null }]);
 });
 
 test('parseAnswerText: extracts decimal value (6.3 MHz)', () => {
   const out = parseAnswerText('Solving, f = 6.3 MHz.');
-  assert.deepEqual(out.computedValues, [{ value: '6.3', unit: 'MHz', raw: '6.3 MHz' }]);
+  assert.deepEqual(out.computedValues, [{ value: '6.3', unit: 'MHz', raw: '6.3 MHz', confidence: 'low', label: null }]);
 });
 
 test('parseAnswerText: deduplicates identical computed values', () => {
@@ -170,4 +170,57 @@ test('parseAnswerText: stop-word "then" is NOT captured as a unit (single equati
   assert.equal(out.computedValues.length, 1);
   assert.equal(out.computedValues[0].value, '7');
   assert.equal(out.computedValues[0].unit, '');
+});
+
+test('parseAnswerText: extracts "Q1: VALUE UNIT" with confidence high and label 1', () => {
+  const out = parseAnswerText('Q1: 1.0000×10^-6 H');
+  assert.equal(out.computedValues.length, 1);
+  assert.equal(out.computedValues[0].value, '1.0000e-6');
+  assert.equal(out.computedValues[0].unit, 'H');
+  assert.equal(out.computedValues[0].raw, '1.0000e-6 H');
+  assert.equal(out.computedValues[0].confidence, 'high');
+  assert.equal(out.computedValues[0].label, '1');
+});
+
+test('parseAnswerText: extracts "Question 1: VALUE UNIT" with confidence high', () => {
+  const out = parseAnswerText('Question 1: 500 turns');
+  assert.equal(out.computedValues[0].value, '500');
+  assert.equal(out.computedValues[0].confidence, 'high');
+  assert.equal(out.computedValues[0].label, '1');
+});
+
+test('parseAnswerText: extracts "Answer 2 = VALUE UNIT" with confidence high and label 2', () => {
+  const out = parseAnswerText('Answer 2 = 0.0352 H');
+  assert.equal(out.computedValues[0].value, '0.0352');
+  assert.equal(out.computedValues[0].unit, 'H');
+  assert.equal(out.computedValues[0].confidence, 'high');
+  assert.equal(out.computedValues[0].label, '2');
+});
+
+test('parseAnswerText: extracts "For #3, the result is VALUE UNIT" with label 3', () => {
+  const out = parseAnswerText('For #3, the result is 6.0781×10^-10 F.');
+  assert.equal(out.computedValues[0].value, '6.0781e-10');
+  assert.equal(out.computedValues[0].unit, 'F');
+  assert.equal(out.computedValues[0].confidence, 'high');
+  assert.equal(out.computedValues[0].label, '3');
+});
+
+test('parseAnswerText: extracts "The answer to question 1 is VALUE UNIT"', () => {
+  const out = parseAnswerText('The answer to question 1 is 1.0000×10^-6 H.');
+  assert.equal(out.computedValues[0].value, '1.0000e-6');
+  assert.equal(out.computedValues[0].confidence, 'high');
+  assert.equal(out.computedValues[0].label, '1');
+});
+
+test('parseAnswerText: multiple labeled answers preserve order by document position', () => {
+  const out = parseAnswerText(
+    'Q1: 1.0000×10^-6 H\n' +
+    'Answer 2 = 0.0352 H\n' +
+    'For #3, the result is 6.0781×10^-10 F.'
+  );
+  assert.equal(out.computedValues.length, 3);
+  assert.equal(out.computedValues[0].label, '1');
+  assert.equal(out.computedValues[1].label, '2');
+  assert.equal(out.computedValues[2].label, '3');
+  assert.ok(out.computedValues.every(function (cv) { return cv.confidence === 'high'; }));
 });
