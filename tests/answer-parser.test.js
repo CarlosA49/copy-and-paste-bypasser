@@ -400,3 +400,11 @@ test('regression: MC letter answer alone still works (no numeric answer)', () =>
   assert.deepEqual(out.letters, ['C']);
   assert.equal(out.computedValues.length, 0);
 });
+
+test('parseAnswerText: "For question N, the answer is X" preserves label N', () => {
+  const out = parseAnswerText('For question 2, the answer is 0.0352 H.');
+  assert.equal(out.computedValues.length, 1);
+  assert.equal(out.computedValues[0].label, '2');
+  assert.equal(out.computedValues[0].confidence, 'high');
+  assert.equal(out.computedValues[0].raw, '0.0352 H');
+});

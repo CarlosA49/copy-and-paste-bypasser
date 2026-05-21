@@ -117,3 +117,19 @@ test('normalizeAnswerText: split sci notation does NOT join unrelated next line'
   // No join — the next line isn't just a signed number.
   assert.equal(out.indexOf('Not an exponent here'), out.length - 'Not an exponent here'.length);
 });
+
+test('normalizeAnswerText: Step C does NOT absorb prose words like "here"/"note" as units', () => {
+  // 4-letter prose words must not be glued onto a trailing number as a unit.
+  const input = '42\nhere';
+  const out = normalizeAnswerText(input);
+  // Step C is now constrained to 1-3 chars, so "here" is too long to be glued.
+  // The string should keep the line break (or whatever the default join produces),
+  // and importantly NOT contain "42 here" as a single value+unit.
+  assert.notEqual(out, '42 here');
+});
+
+test('normalizeAnswerText: Step C still joins legitimate 1-3 char units', () => {
+  // 1-3 char units like H, Hz, μH should still be joined.
+  assert.equal(normalizeAnswerText('1.0e-6\nH'), '1.0e-6 H');
+  assert.equal(normalizeAnswerText('60\nHz'), '60 Hz');
+});
