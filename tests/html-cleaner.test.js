@@ -280,3 +280,40 @@ test('zero-width-only line between paragraphs collapses cleanly', () => {
   // And the zero-width char is gone.
   assert.doesNotMatch(cleanText, /[​-‍﻿]/);
 });
+
+// --- Dedupe Coursera question-number prefix ------------------------------------
+
+test('"Question 1" header followed by "1. Body" — leading "1." stripped from body', () => {
+  const input =
+    '<p>Question 1</p>' +
+    '<p>1. A toroidal inductor consists of 500 turns.</p>' +
+    '<p>1 point</p>';
+  const { cleanText } = cleanSelectionHtml(input);
+  assert.match(cleanText, /Question 1\n\nA toroidal inductor consists of 500 turns\./);
+  // The trailing "1 point" worth marker must survive (it's not a body prefix).
+  assert.match(cleanText, /1 point/);
+});
+
+test('"Question 1" header followed by "1 Body" (no punctuation) — leading "1 " stripped', () => {
+  const input =
+    '<p>Question 1</p>' +
+    '<p>1 A toroidal inductor consists of 500 turns.</p>' +
+    '<p>1 point</p>';
+  const { cleanText } = cleanSelectionHtml(input);
+  assert.match(cleanText, /Question 1\n\nA toroidal inductor consists of 500 turns\./);
+  assert.match(cleanText, /1 point/);
+});
+
+test('"Question 1" header followed by "1 point" — the worth marker is NOT stripped', () => {
+  // Edge case: no body between header and worth marker; we must not strip
+  // "1 " from "1 point" or the user sees just "point".
+  const input = '<p>Question 1</p><p>1 point</p>';
+  const { cleanText } = cleanSelectionHtml(input);
+  assert.match(cleanText, /Question 1\n\n1 point/);
+});
+
+test('mismatched number — "Question 2" followed by "1. body" — no stripping (numbers differ)', () => {
+  const input = '<p>Question 2</p><p>1. unrelated</p>';
+  const { cleanText } = cleanSelectionHtml(input);
+  assert.match(cleanText, /Question 2\n\n1\. unrelated/);
+});
