@@ -469,3 +469,70 @@ test('applyTextMatches: returns { filled: 0, skipped: 0 } for empty list', () =>
 test('applyTextMatches: returns { filled: 0, skipped: 0 } for non-array input', () => {
   assert.deepEqual(applyTextMatches(null), { filled: 0, skipped: 0 });
 });
+
+test('findTextInputs: skips <input type="hidden">', () => {
+  const d = dom('<input type="hidden" id="h"><input type="text" id="ok">');
+  const list = findTextInputs(d.body);
+  assert.equal(list.length, 1);
+  assert.equal(list[0].el.id, 'ok');
+});
+
+test('findTextInputs: skips <input hidden> (the HTML hidden attribute)', () => {
+  const d = dom('<input type="text" hidden id="h"><input type="text" id="ok">');
+  const list = findTextInputs(d.body);
+  assert.equal(list.length, 1);
+  assert.equal(list[0].el.id, 'ok');
+});
+
+test('findTextInputs: skips <input style="display:none">', () => {
+  const d = dom('<input type="text" id="h" style="display:none"><input type="text" id="ok">');
+  const list = findTextInputs(d.body);
+  assert.equal(list.length, 1);
+  assert.equal(list[0].el.id, 'ok');
+});
+
+test('findTextInputs: skips inputs inside a display:none ancestor', () => {
+  const d = dom('<div style="display:none"><input type="text" id="h"></div><input type="text" id="ok">');
+  const list = findTextInputs(d.body);
+  assert.equal(list.length, 1);
+  assert.equal(list[0].el.id, 'ok');
+});
+
+test('findTextInputs: skips aria-hidden="true" inputs', () => {
+  const d = dom('<input type="text" id="h" aria-hidden="true"><input type="text" id="ok">');
+  const list = findTextInputs(d.body);
+  assert.equal(list.length, 1);
+  assert.equal(list[0].el.id, 'ok');
+});
+
+test('findTextInputs: skips inputs inside an aria-hidden ancestor', () => {
+  const d = dom('<div aria-hidden="true"><input type="text" id="h"></div><input type="text" id="ok">');
+  const list = findTextInputs(d.body);
+  assert.equal(list.length, 1);
+  assert.equal(list[0].el.id, 'ok');
+});
+
+test('findTextInputs: skips visibility:hidden', () => {
+  const d = dom('<input type="text" id="h" style="visibility:hidden"><input type="text" id="ok">');
+  const list = findTextInputs(d.body);
+  assert.equal(list.length, 1);
+  assert.equal(list[0].el.id, 'ok');
+});
+
+test('findTextInputs: type="search" is no longer included (Coursera answer boxes are text/number)', () => {
+  const d = dom('<input type="search" id="s"><input type="text" id="ok">');
+  const list = findTextInputs(d.body);
+  assert.equal(list.length, 1);
+  assert.equal(list[0].el.id, 'ok');
+});
+
+test('findTextInputs: 12 visible answer boxes among extra hidden inputs counts exactly 12', () => {
+  // Real-world scenario: a page has 12 visible answer boxes plus 2 hidden
+  // React/framework inputs. findTextInputs returns exactly 12.
+  let html = '<input type="hidden" name="csrf">';
+  for (let i = 0; i < 12; i++) html += '<input type="text" name="q' + i + '">';
+  html += '<div style="display:none"><input type="text" name="internal"></div>';
+  const d = dom(html);
+  const list = findTextInputs(d.body);
+  assert.equal(list.length, 12);
+});
