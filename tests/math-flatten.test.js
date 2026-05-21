@@ -44,3 +44,36 @@ test('flattenLatexToText: returns null for non-string input', () => {
   assert.equal(flattenLatexToText(undefined), null);
   assert.equal(flattenLatexToText(123), null);
 });
+
+test('flattenLatexToText: simple ^2 → ²', () => {
+  assert.equal(flattenLatexToText('cm^2'), 'cm²');
+});
+
+test('flattenLatexToText: ^{2} → ²', () => {
+  assert.equal(flattenLatexToText('cm^{2}'), 'cm²');
+});
+
+test('flattenLatexToText: ^3 → ³', () => {
+  assert.equal(flattenLatexToText('m^3'), 'm³');
+});
+
+test('flattenLatexToText: multi-digit superscript ^{10} → ¹⁰', () => {
+  assert.equal(flattenLatexToText('x^{10}'), 'x¹⁰');
+});
+
+test('flattenLatexToText: subscript _0 → ₀', () => {
+  assert.equal(flattenLatexToText('t_0'), 't₀');
+});
+
+test('flattenLatexToText: subscript _{12} → ₁₂', () => {
+  assert.equal(flattenLatexToText('R_{12}'), 'R₁₂');
+});
+
+test('flattenLatexToText: superscript with un-mappable char (^x) → null fallback', () => {
+  // Caller will fall back to LaTeX form.
+  assert.equal(flattenLatexToText('a^x'), null);
+});
+
+test('flattenLatexToText: full noisy example "2\\,cm^2" → "2 cm²"', () => {
+  assert.equal(flattenLatexToText('2\\,cm^2'), '2 cm²');
+});
