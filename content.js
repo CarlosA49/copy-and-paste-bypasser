@@ -1,43 +1,49 @@
-// Runs after lib/cleaner.js, which exposes window.ClipboardCleaner.
+// Runs after lib/cleaner.js and lib/html-cleaner.js, which expose
+// window.ClipboardCleaner.{cleanCopiedText, cleanSelectionHtml, JUNK_LINE_PATTERNS}.
 (function () {
   'use strict';
 
-  function getSelectedText() {
-    const sel = window.getSelection();
-    if (!sel || sel.rangeCount === 0) return '';
-    const text = sel.toString();
-    return typeof text === 'string' ? text : '';
+  function serializeRange(range) {
+    const fragment = range.cloneContents();
+    const tmp = document.createElement('div');
+    tmp.appendChild(fragment);
+    return tmp.innerHTML;
   }
 
   function onCopy(event) {
-    const cleaner = window.ClipboardCleaner;
-    if (!cleaner || typeof cleaner.cleanCopiedText !== 'function') {
-      // Cleaner module did not load — fall back to default browser behavior.
-      return;
+    const api = window.ClipboardCleaner;
+    if (!api || typeof api.cleanCopiedText !== 'function') return;
+
+    const sel = window.getSelection();
+    if (!sel || sel.rangeCount === 0) return;
+    const selectedText = sel.toString();
+    if (!selectedText) return;
+
+    if (!event.clipboardData) return;
+
+    // Rich path: derive both text/html and text/plain from the cleaned HTML.
+    if (typeof api.cleanSelectionHtml === 'function') {
+      try {
+        const rawHtml = serializeRange(sel.getRangeAt(0));
+        const { cleanHtml, cleanText } = api.cleanSelectionHtml(rawHtml);
+        // If the cleaner returned empty (all junk), fall through to plain
+        // path so the user still copies *something*.
+        if (cleanText && cleanText.length > 0) {
+          event.clipboardData.setData('text/html', cleanHtml);
+          event.clipboardData.setData('text/plain', cleanText);
+          event.preventDefault();
+          return;
+        }
+      } catch (e) {
+        // Fall through to plain path on any error.
+      }
     }
 
-    const selected = getSelectedText();
-    if (!selected) {
-      // Nothing selected (e.g. programmatic copy by the page). Don't interfere.
-      return;
-    }
-
-    const cleaned = cleaner.cleanCopiedText(selected);
-
-    if (!event.clipboardData) {
-      // Very old browser, or copy was synthesized without clipboardData.
-      return;
-    }
-
-    // Replace the clipboard payload with our cleaned text and stop the
-    // browser (and any later page handler) from overwriting it.
+    // Plain-only fallback path.
+    const cleaned = api.cleanCopiedText(selectedText);
     event.clipboardData.setData('text/plain', cleaned);
     event.preventDefault();
-    // Note: we deliberately do NOT touch window.getSelection(), so the
-    // highlighted range stays visible — the user still sees what they copied.
   }
 
-  // Capture phase = true: we run before page-registered bubble handlers,
-  // and our preventDefault() blocks the default action they rely on.
   document.addEventListener('copy', onCopy, true);
 })();
