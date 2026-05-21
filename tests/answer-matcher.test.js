@@ -813,3 +813,37 @@ test('applyTextMatches: setter that ALWAYS throws — field is skipped with reas
   assert.equal(summary.skipped, 1);
   assert.equal(summary.reasons[0], 'rejected-throw');
 });
+
+test('applyTextMatches: <input type="number"> with value "6.0781e-10 F" fills as "6.0781e-10"', () => {
+  // The live-Coursera bug: number inputs reject the unit-containing variant.
+  // buildVariants should drop "6.0781e-10 F" (it has letter 'F') before any
+  // setter is touched, so the first attempted variant is "6.0781e-10".
+  const d = dom('<input type="number" id="t">');
+  const el = d.getElementById('t');
+  const summary = applyTextMatches([{ el: el, value: '6.0781e-10 F', reason: 'computedValue' }]);
+  assert.equal(summary.filled, 1);
+  assert.equal(el.value, '6.0781e-10');
+  // Pin the variantIndex: the numeric-only form is index 0 of the FILTERED
+  // variant list (the unit-containing form was dropped before the loop ran).
+  assert.equal(summary.results[0].variantIndex, 0);
+  assert.equal(summary.results[0].valueUsed, '6.0781e-10');
+});
+
+test('applyTextMatches: <input type="number"> still tries plain-decimal expansion if numeric-only is rejected', () => {
+  // Some number widgets reject scientific notation but accept decimal expansion.
+  // Construct one that rejects strings containing 'e' but accepts pure digits/dot.
+  const d = dom('<input type="number" id="t">');
+  const el = d.getElementById('t');
+  let stored = '';
+  Object.defineProperty(el, 'value', {
+    configurable: true,
+    get: function () { return stored; },
+    set: function (v) { stored = /[eE]/.test(v) ? '' : String(v); },
+  });
+  const summary = applyTextMatches([{ el: el, value: '0.0352 F', reason: 'computedValue' }]);
+  // Filtered variants for a number input: ["0.0352"] (or with plain-decimal
+  // which is identical and deduped). The value with unit "0.0352 F" is dropped.
+  // The numeric "0.0352" has no 'e', so it's accepted on the first try.
+  assert.equal(summary.filled, 1);
+  assert.equal(stored, '0.0352');
+});
