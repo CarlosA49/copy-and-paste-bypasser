@@ -106,3 +106,32 @@ test('allow-list attributes survive: <a href title>, <ol start>, <td colspan>, <
   assert.doesNotMatch(cleanHtml, /style=/);
   assert.doesNotMatch(cleanHtml, /data-/);
 });
+
+// --- Pass 4: Tag filter and empty-wrapper sweep ----------------------------
+
+test('non-allow-list tag is unwrapped: <font>word</font> becomes word', () => {
+  const input = '<p>before <font color="red">word</font> after</p>';
+  const { cleanHtml } = cleanSelectionHtml(input);
+  assert.match(cleanHtml, /^<p>before word after<\/p>$/);
+  assert.doesNotMatch(cleanHtml, /font/);
+});
+
+test('empty wrapper blocks are removed after unwrapping', () => {
+  const input = '<div><div><span></span></div></div>';
+  const { cleanHtml } = cleanSelectionHtml(input);
+  assert.equal(cleanHtml, '');
+});
+
+test('allow-list tags are preserved with their content', () => {
+  const input =
+    '<h2>Heading</h2>' +
+    '<p>Paragraph</p>' +
+    '<ul><li>item</li></ul>' +
+    '<strong>bold</strong> <em>italic</em>';
+  const { cleanHtml } = cleanSelectionHtml(input);
+  assert.match(cleanHtml, /<h2>Heading<\/h2>/);
+  assert.match(cleanHtml, /<p>Paragraph<\/p>/);
+  assert.match(cleanHtml, /<ul><li>item<\/li><\/ul>/);
+  assert.match(cleanHtml, /<strong>bold<\/strong>/);
+  assert.match(cleanHtml, /<em>italic<\/em>/);
+});
