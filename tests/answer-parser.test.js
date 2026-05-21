@@ -84,3 +84,8 @@ test('parseAnswerText: extracts "answer N" branch', () => {
   const out = parseAnswerText('Pick answer 5 then answer 7');
   assert.deepEqual(out.numbers, [5, 7]);
 });
+
+test('parseAnswerText: deduplicates quoted snippets case-insensitively', () => {
+  const out = parseAnswerText('Pick "alpha" and "alpha" then "ALPHA" then "beta"');
+  assert.deepEqual(out.quotedSnippets, ['alpha', 'beta']);
+});

@@ -73,6 +73,8 @@ Paste the answer text you want to apply (for example: "The correct answers are A
 
 Nothing is sent off-device — parsing and matching happen entirely in the content script.
 
+On pages with multiple questions, letter and number candidates are applied to every group on the page; use a quoted phrase from a specific option to target one question.
+
 ### Resizing
 
 Drag the left edge of the panel to resize between 280 and 640 pixels wide.
