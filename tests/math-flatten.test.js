@@ -101,3 +101,7 @@ test('flattenLatexToText: returns null for \\begin{matrix}', () => {
 test('flattenLatexToText: returns null for unknown macro (e.g. \\foobar)', () => {
   assert.equal(flattenLatexToText('\\foobar'), null);
 });
+
+test('flattenLatexToText: nested braces {{x}} unwrap fully (iterative strip)', () => {
+  assert.equal(flattenLatexToText('{{x}}'), 'x');
+});
