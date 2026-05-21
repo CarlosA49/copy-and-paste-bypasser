@@ -829,7 +829,7 @@ test('applyTextMatches: <input type="number"> with value "6.0781e-10 F" fills as
   assert.equal(summary.results[0].valueUsed, '6.0781e-10');
 });
 
-test('applyTextMatches: <input type="number"> still tries plain-decimal expansion if numeric-only is rejected', () => {
+test('applyTextMatches: <input type="number"> falls back to plain-decimal when scientific notation is rejected', () => {
   // Some number widgets reject scientific notation but accept decimal expansion.
   // Construct one that rejects strings containing 'e' but accepts pure digits/dot.
   const d = dom('<input type="number" id="t">');
@@ -840,10 +840,48 @@ test('applyTextMatches: <input type="number"> still tries plain-decimal expansio
     get: function () { return stored; },
     set: function (v) { stored = /[eE]/.test(v) ? '' : String(v); },
   });
-  const summary = applyTextMatches([{ el: el, value: '0.0352 F', reason: 'computedValue' }]);
-  // Filtered variants for a number input: ["0.0352"] (or with plain-decimal
-  // which is identical and deduped). The value with unit "0.0352 F" is dropped.
-  // The numeric "0.0352" has no 'e', so it's accepted on the first try.
+  // For value "1.0e-6 F" on a number input:
+  //   buildVariants produces ["1.0e-6 F", "1.0e-6", "0.000001"]
+  //   isNumberShaped filter drops "1.0e-6 F" → ["1.0e-6", "0.000001"]
+  //   variant 0 "1.0e-6" rejected (contains 'e') → empty stored
+  //   variant 1 "0.000001" accepted → stored = "0.000001"
+  const summary = applyTextMatches([{ el: el, value: '1.0e-6 F', reason: 'computedValue' }]);
   assert.equal(summary.filled, 1);
-  assert.equal(stored, '0.0352');
+  assert.equal(stored, '0.000001');
+  // Pin the variantIndex: the plain-decimal expansion is index 1 of the filtered list.
+  assert.equal(summary.results[0].variantIndex, 1);
+  assert.equal(summary.results[0].valueUsed, '0.000001');
+});
+
+test('applyTextMatches: dot-leading number ".5 F" extracts ".5" (not "5")', () => {
+  // Regression: previously the numeric-extraction regex required at least one
+  // digit before the decimal point, so ".5 F" matched "5" and dropped the
+  // dot. Fixed regex now accepts dot-leading forms.
+  const d = dom('<input type="text" id="t">');
+  const el = d.getElementById('t');
+  let stored = '';
+  Object.defineProperty(el, 'value', {
+    configurable: true,
+    get: function () { return stored; },
+    set: function (v) { stored = /[A-Za-z]/.test(v) ? '' : String(v); },
+  });
+  const summary = applyTextMatches([{ el: el, value: '.5 F', reason: 'computedValue' }]);
+  assert.equal(summary.filled, 1);
+  // Variant 0 ".5 F" rejected (has F). Variant 1 ".5" accepted.
+  assert.equal(stored, '.5');
+});
+
+test('applyTextMatches: dot-leading negative "-.5 F" extracts "-.5" (not "5")', () => {
+  const d = dom('<input type="text" id="t">');
+  const el = d.getElementById('t');
+  let stored = '';
+  Object.defineProperty(el, 'value', {
+    configurable: true,
+    get: function () { return stored; },
+    set: function (v) { stored = /[A-Za-z]/.test(v) ? '' : String(v); },
+  });
+  const summary = applyTextMatches([{ el: el, value: '-.5 F', reason: 'computedValue' }]);
+  assert.equal(summary.filled, 1);
+  // Variant 0 "-.5 F" rejected. Variant 1 "-.5" accepted (negative sign preserved).
+  assert.equal(stored, '-.5');
 });
