@@ -1,0 +1,9 @@
+{
+  "name": "clipboard-cleaner",
+  "version": "1.0.0",
+  "description": "Browser extension that strips injected copyright/warning text from clipboard on copy.",
+  "private": true,
+  "scripts": {
+    "test": "node --test"
+  }
+}
