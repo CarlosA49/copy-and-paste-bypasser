@@ -727,3 +727,21 @@ test('regression: 12 visible answer boxes + 12 values fills 12/12 (no off-by-N)'
   assert.equal(summary.filled, 12);
   assert.equal(summary.skipped, 0);
 });
+
+test('regression: plain-decimal variant for 0.0352 does not emit float-imprecision artefacts', () => {
+  // Reject any value containing a letter so the numeric variant runs.
+  // Then probe: the plain-decimal fallback must NOT be "0.03520000000000000212".
+  const d = dom('<input type="text" id="t">');
+  const el = d.getElementById('t');
+  let stored = '';
+  Object.defineProperty(el, 'value', {
+    configurable: true,
+    get: function () { return stored; },
+    set: function (v) { stored = /[A-Za-z]/.test(v) ? '' : String(v); },
+  });
+  const summary = applyTextMatches([{ el: el, value: '0.0352e0 H', reason: 'computedValue' }]);
+  // Variants tried in order: "0.0352e0 H" (letters), "0.0352e0" (still has e),
+  // then plain-decimal of 0.0352 == "0.0352" (no letters → accepted).
+  assert.equal(summary.filled, 1);
+  assert.equal(el.value, '0.0352');
+});
