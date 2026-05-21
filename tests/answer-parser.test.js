@@ -31,3 +31,41 @@ test('parseAnswerText: does NOT pick stray letters inside ordinary words', () =>
   const out = parseAnswerText('The answer involves choosing carefully.');
   assert.deepEqual(out.letters, []);
 });
+
+test('parseAnswerText: extracts numeric option references like "Option 2" and "#3"', () => {
+  const out = parseAnswerText('Pick option 2 and choice #3');
+  assert.deepEqual(out.numbers, [2, 3]);
+});
+
+test('parseAnswerText: extracts numbers in "1)" / "1." enumerated forms', () => {
+  const out = parseAnswerText('Correct: 1) and 4.');
+  assert.deepEqual(out.numbers, [1, 4]);
+});
+
+test('parseAnswerText: ignores standalone numbers without an option marker', () => {
+  // "I have 5 apples" should not pretend 5 is an option index.
+  const out = parseAnswerText('I have 5 apples and 12 oranges.');
+  assert.deepEqual(out.numbers, []);
+});
+
+test('parseAnswerText: extracts double-quoted snippets verbatim', () => {
+  const out = parseAnswerText('Pick "Gradient descent" and "Backpropagation"');
+  assert.deepEqual(out.quotedSnippets, ['Gradient descent', 'Backpropagation']);
+});
+
+test('parseAnswerText: extracts single-quoted snippets and trims whitespace', () => {
+  const out = parseAnswerText("Choose '  cross entropy  '");
+  assert.deepEqual(out.quotedSnippets, ['cross entropy']);
+});
+
+test('parseAnswerText: ignores empty quoted snippets', () => {
+  const out = parseAnswerText('Pick "" and "real"');
+  assert.deepEqual(out.quotedSnippets, ['real']);
+});
+
+test('parseAnswerText: combined extraction does not drop earlier categories', () => {
+  const out = parseAnswerText('A. "Gradient descent". Also pick option 3.');
+  assert.deepEqual(out.letters, ['A']);
+  assert.deepEqual(out.numbers, [3]);
+  assert.deepEqual(out.quotedSnippets, ['Gradient descent']);
+});
