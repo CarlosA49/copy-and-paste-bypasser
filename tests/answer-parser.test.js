@@ -69,3 +69,18 @@ test('parseAnswerText: combined extraction does not drop earlier categories', ()
   assert.deepEqual(out.numbers, [3]);
   assert.deepEqual(out.quotedSnippets, ['Gradient descent']);
 });
+
+test('parseAnswerText: ignores decimal numbers like 3.14 and 1.5', () => {
+  const out = parseAnswerText('The value is 3.14 not 2.71 — score 1.5 out of 2.0.');
+  assert.deepEqual(out.numbers, []);
+});
+
+test('parseAnswerText: still extracts "N." when followed by a non-digit (enumerated form)', () => {
+  const out = parseAnswerText('Correct: 1. and 4. are right');
+  assert.deepEqual(out.numbers, [1, 4]);
+});
+
+test('parseAnswerText: extracts "answer N" branch', () => {
+  const out = parseAnswerText('Pick answer 5 then answer 7');
+  assert.deepEqual(out.numbers, [5, 7]);
+});
