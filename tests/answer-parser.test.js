@@ -496,3 +496,52 @@ test('parseAnswerText: "outcome is X" pattern extracts the value', () => {
   assert.equal(out.computedValues[0].unit, 'J');
   assert.equal(out.computedValues[0].confidence, 'high');
 });
+
+const { cleanFillValue } = require('../lib/answer-parser.js');
+
+test('cleanFillValue: strips leading "= "', () => {
+  assert.equal(cleanFillValue('= 1.0e-6 H'), '1.0e-6 H');
+});
+
+test('cleanFillValue: strips "answer = " / "answer is "', () => {
+  assert.equal(cleanFillValue('answer = 1.0e-6 H'), '1.0e-6 H');
+  assert.equal(cleanFillValue('Answer is 1.0e-6 H'), '1.0e-6 H');
+});
+
+test('cleanFillValue: strips "the answer is " (with article)', () => {
+  assert.equal(cleanFillValue('The answer is 1.0e-6 H'), '1.0e-6 H');
+});
+
+test('cleanFillValue: strips "value is = "', () => {
+  assert.equal(cleanFillValue('value is = 1.0e-6 H'), '1.0e-6 H');
+});
+
+test('cleanFillValue: strips "Final: = "', () => {
+  assert.equal(cleanFillValue('Final: = 1.0e-6 H'), '1.0e-6 H');
+});
+
+test('cleanFillValue: strips "result is " and "outcome is "', () => {
+  assert.equal(cleanFillValue('result is 42 J'), '42 J');
+  assert.equal(cleanFillValue('outcome is 42 J'), '42 J');
+});
+
+test('cleanFillValue: passes already-clean value through unchanged', () => {
+  assert.equal(cleanFillValue('1.0e-6 H'), '1.0e-6 H');
+  assert.equal(cleanFillValue('500'), '500');
+});
+
+test('cleanFillValue: returns "" for non-string and empty inputs', () => {
+  assert.equal(cleanFillValue(null), '');
+  assert.equal(cleanFillValue(undefined), '');
+  assert.equal(cleanFillValue(123), '');
+  assert.equal(cleanFillValue(''), '');
+  assert.equal(cleanFillValue('   '), '');
+});
+
+test('cleanFillValue: trims surrounding whitespace', () => {
+  assert.equal(cleanFillValue('   1.0e-6 H   '), '1.0e-6 H');
+});
+
+test('cleanFillValue: loops to strip chained prefixes (Final: + answer is + =)', () => {
+  assert.equal(cleanFillValue('Final: answer is = 1.0e-6 H'), '1.0e-6 H');
+});
