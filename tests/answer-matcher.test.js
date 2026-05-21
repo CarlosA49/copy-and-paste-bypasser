@@ -82,3 +82,42 @@ test('findOptionGroups: handles ARIA radio/checkbox roles on non-input elements'
   assert.equal(groups[0].kind, 'radio');
   assert.equal(groups[0].options[0].text, 'Option X');
 });
+
+test('findOptionGroups: two unrelated nameless radio fieldsets are NOT merged', () => {
+  const d = dom(
+    '<fieldset><label><input type="radio"> A1</label><label><input type="radio"> A2</label></fieldset>' +
+    '<fieldset><label><input type="radio"> B1</label><label><input type="radio"> B2</label></fieldset>'
+  );
+  const groups = findOptionGroups(d.body);
+  assert.equal(groups.length, 2, 'should produce one group per fieldset');
+  assert.equal(groups[0].options.length, 2);
+  assert.equal(groups[1].options.length, 2);
+  assert.equal(groups[0].options[0].text, 'A1');
+  assert.equal(groups[1].options[0].text, 'B1');
+});
+
+test('findOptionGroups: nested role="group" containers do not double-count role="checkbox"', () => {
+  const d = dom(
+    '<div id="outer" role="group">' +
+      '<div role="checkbox">Outer-only</div>' +
+      '<div id="inner" role="group">' +
+        '<div role="checkbox">Shared</div>' +
+      '</div>' +
+    '</div>'
+  );
+  const groups = findOptionGroups(d.body);
+  // Outer claims both (it is the outermost ancestor of every role=checkbox in its subtree).
+  // Inner therefore produces no group.
+  const total = groups.reduce(function (n, g) { return n + g.options.length; }, 0);
+  assert.equal(total, 2, 'each role=checkbox should be owned by exactly one group');
+});
+
+test('findOptionGroups: anonymous ARIA radiogroups get unique names', () => {
+  const d = dom(
+    '<div role="radiogroup"><div role="radio">X</div></div>' +
+    '<div role="radiogroup"><div role="radio">Y</div></div>'
+  );
+  const groups = findOptionGroups(d.body);
+  assert.equal(groups.length, 2);
+  assert.notEqual(groups[0].name, groups[1].name, 'anonymous ARIA groups must not collide on name');
+});
