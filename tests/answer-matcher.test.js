@@ -125,7 +125,7 @@ test('findOptionGroups: anonymous ARIA radiogroups get unique names', () => {
 const { matchCandidates } = require('../lib/answer-matcher.js');
 
 function radioGroup(d, texts) {
-  texts.forEach(function (t, i) {
+  texts.forEach(function (t) {
     const label = d.createElement('label');
     const inp = d.createElement('input');
     inp.type = 'radio'; inp.name = 'q1';
@@ -210,4 +210,12 @@ test('matchCandidates: checkbox group keeps all matched candidates', () => {
   assert.equal(matches.length, 2);
   assert.equal(matches[0].option.index, 0);
   assert.equal(matches[1].option.index, 2);
+});
+
+test('matchCandidates: radio tie-break selects lowest index regardless of letter order', () => {
+  const d = dom('');
+  const g = radioGroup(d, ['Alpha', 'Beta']);
+  const r = matchCandidates([g], { letters: ['B', 'A'], numbers: [], quotedSnippets: [], rawText: '' });
+  assert.equal(r.length, 1);
+  assert.equal(r[0].option.index, 0); // A (index 0) wins, not B (index 1)
 });
