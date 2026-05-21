@@ -236,3 +236,28 @@ test('full Coursera quiz question: boilerplate dropped, equation rendered, answe
   assert.match(cleanText, /1 point/);
   assert.doesNotMatch(cleanText, /AI assistant/i);
 });
+
+// --- Standalone "I understand" filter ---------------------------------------
+
+test('drops a <p>I understand</p> block but keeps question text and answers', () => {
+  const input =
+    '<h3>Question 1</h3>' +
+    '<p>What is the capacitance?</p>' +
+    '<p>I understand</p>' +
+    '<ol><li>5 µF</li><li>10 µF</li></ol>' +
+    '<p>1 point</p>';
+  const { cleanHtml, cleanText } = cleanSelectionHtml(input);
+  assert.doesNotMatch(cleanHtml, /<p>I understand<\/p>/);
+  assert.match(cleanHtml, /<h3>Question 1<\/h3>/);
+  assert.match(cleanHtml, /<p>What is the capacitance\?<\/p>/);
+  assert.match(cleanHtml, /<ol>/);
+  assert.match(cleanHtml, /<p>1 point<\/p>/);
+  assert.doesNotMatch(cleanText, /^\s*I understand\s*$/im);
+});
+
+test('preserves <p>I understand how capacitors work.</p>', () => {
+  const input = '<p>I understand how capacitors work.</p>';
+  const { cleanHtml, cleanText } = cleanSelectionHtml(input);
+  assert.match(cleanHtml, /<p>I understand how capacitors work\.<\/p>/);
+  assert.equal(cleanText, 'I understand how capacitors work.');
+});

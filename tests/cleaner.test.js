@@ -313,3 +313,70 @@ test('repeated "Do you understand?." across a multi-question Coursera copy is st
 
   assert.equal(cleanCopiedText(input), expected);
 });
+
+// --- Standalone "I understand" filter (Coursera boilerplate) ---------------
+
+test('drops a paragraph that is exactly "I understand"', () => {
+  const input = 'Real content.\n\nI understand';
+  assert.equal(cleanCopiedText(input), 'Real content.');
+});
+
+test('drops "I understand." with trailing period', () => {
+  const input = 'Real content.\n\nI understand.';
+  assert.equal(cleanCopiedText(input), 'Real content.');
+});
+
+test('drops "I understand!" with trailing exclamation', () => {
+  const input = 'Real content.\n\nI understand!';
+  assert.equal(cleanCopiedText(input), 'Real content.');
+});
+
+test('drops "i understand" lowercase', () => {
+  const input = 'Real content.\n\ni understand';
+  assert.equal(cleanCopiedText(input), 'Real content.');
+});
+
+test('drops multiple repeated "I understand" lines across a multi-question copy', () => {
+  const input = [
+    'Question 1',
+    'What is the capacitance?',
+    '',
+    'I understand',
+    '',
+    '(a) 5 µF',
+    '(b) 10 µF',
+    '',
+    '1 point',
+    '',
+    'Question 2',
+    'Define inductance.',
+    '',
+    'I understand.',
+    '',
+    '(a) Property of a coil',
+    '(b) Property of a battery',
+    '',
+    '1 point',
+  ].join('\n');
+  const result = cleanCopiedText(input);
+  assert.doesNotMatch(result, /^\s*I understand\s*$/im);
+  assert.match(result, /Question 1/);
+  assert.match(result, /What is the capacitance\?/);
+  assert.match(result, /\(a\) 5 µF/);
+  assert.match(result, /Question 2/);
+  assert.match(result, /Define inductance\./);
+  assert.match(result, /\(a\) Property of a coil/);
+});
+
+test('preserves a sentence that merely contains "I understand"', () => {
+  const input = 'I understand how capacitors work.';
+  assert.equal(cleanCopiedText(input), 'I understand how capacitors work.');
+});
+
+test('preserves "I understand how X works" inside a multi-line paragraph', () => {
+  // A paragraph where one of the lines is a sentence that merely contains
+  // "I understand". The anchored regex doesn't match (the line isn't just
+  // "I understand"), so the paragraph is preserved intact.
+  const input = 'I understand how capacitors work.\nMore content here.';
+  assert.equal(cleanCopiedText(input), 'I understand how capacitors work.\nMore content here.');
+});
