@@ -297,3 +297,65 @@ test('applyMatches: returns { selected: 0, skipped: 0 } for empty match list', (
   const summary = applyMatches([]);
   assert.deepEqual(summary, { selected: 0, skipped: 0 });
 });
+
+const { findTextInputs } = require('../lib/answer-matcher.js');
+
+test('findTextInputs: returns [] when page has no text inputs', () => {
+  const d = dom('<p>nothing here</p>');
+  assert.deepEqual(findTextInputs(d.body), []);
+});
+
+test('findTextInputs: finds an <input type="text">', () => {
+  const d = dom('<input type="text" id="t1">');
+  const list = findTextInputs(d.body);
+  assert.equal(list.length, 1);
+  assert.equal(list[0].kind, 'input');
+  assert.equal(list[0].el.id, 't1');
+});
+
+test('findTextInputs: finds an <input type="number">', () => {
+  const d = dom('<input type="number" id="n1">');
+  const list = findTextInputs(d.body);
+  assert.equal(list.length, 1);
+  assert.equal(list[0].kind, 'input');
+});
+
+test('findTextInputs: skips type="radio" and type="checkbox"', () => {
+  const d = dom('<input type="radio" name="r"><input type="checkbox" name="c">');
+  assert.deepEqual(findTextInputs(d.body), []);
+});
+
+test('findTextInputs: finds a <textarea>', () => {
+  const d = dom('<textarea id="ta"></textarea>');
+  const list = findTextInputs(d.body);
+  assert.equal(list.length, 1);
+  assert.equal(list[0].kind, 'textarea');
+});
+
+test('findTextInputs: finds a [contenteditable="true"] div', () => {
+  const d = dom('<div id="ce" contenteditable="true">hi</div>');
+  const list = findTextInputs(d.body);
+  assert.equal(list.length, 1);
+  assert.equal(list[0].kind, 'contenteditable');
+});
+
+test('findTextInputs: skips disabled / readonly inputs', () => {
+  const d = dom(
+    '<input type="text" disabled>' +
+    '<input type="text" readonly>' +
+    '<input type="text" id="ok">'
+  );
+  const list = findTextInputs(d.body);
+  assert.equal(list.length, 1);
+  assert.equal(list[0].el.id, 'ok');
+});
+
+test('findTextInputs: preserves discovery order', () => {
+  const d = dom(
+    '<input type="text" id="a">' +
+    '<textarea id="b"></textarea>' +
+    '<input type="number" id="c">'
+  );
+  const list = findTextInputs(d.body);
+  assert.deepEqual(list.map(function (x) { return x.el.id; }), ['a', 'b', 'c']);
+});
