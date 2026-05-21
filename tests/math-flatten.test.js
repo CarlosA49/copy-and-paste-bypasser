@@ -77,3 +77,27 @@ test('flattenLatexToText: superscript with un-mappable char (^x) → null fallba
 test('flattenLatexToText: full noisy example "2\\,cm^2" → "2 cm²"', () => {
   assert.equal(flattenLatexToText('2\\,cm^2'), '2 cm²');
 });
+
+test('flattenLatexToText: returns null for \\frac', () => {
+  assert.equal(flattenLatexToText('\\frac{1}{2}'), null);
+});
+
+test('flattenLatexToText: returns null for \\sqrt', () => {
+  assert.equal(flattenLatexToText('\\sqrt{2}'), null);
+});
+
+test('flattenLatexToText: returns null for \\sum', () => {
+  assert.equal(flattenLatexToText('\\sum_{i=0}^{n} i'), null);
+});
+
+test('flattenLatexToText: returns null for \\int', () => {
+  assert.equal(flattenLatexToText('\\int_a^b f(x) dx'), null);
+});
+
+test('flattenLatexToText: returns null for \\begin{matrix}', () => {
+  assert.equal(flattenLatexToText('\\begin{matrix}1 & 2\\end{matrix}'), null);
+});
+
+test('flattenLatexToText: returns null for unknown macro (e.g. \\foobar)', () => {
+  assert.equal(flattenLatexToText('\\foobar'), null);
+});
