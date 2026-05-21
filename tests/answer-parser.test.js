@@ -408,3 +408,91 @@ test('parseAnswerText: "For question N, the answer is X" preserves label N', () 
   assert.equal(out.computedValues[0].confidence, 'high');
   assert.equal(out.computedValues[0].raw, '0.0352 H');
 });
+
+// --- Final-review minor polish: bare-value guard + STOP_UNITS + edge cases ---
+
+test('parseAnswerText: lone short integer on its own line is demoted to low confidence', () => {
+  // Stray digits in a derivation should not be promoted to medium just because
+  // the line contains nothing else.
+  const out = parseAnswerText('There are many factors.\n3\nHowever, the conclusion stands.');
+  // The lone "3" should be confidence: 'low' (not 'medium').
+  const bare3 = out.computedValues.find(function (cv) { return cv.value === '3' && cv.unit === ''; });
+  assert.ok(bare3, 'lone 3 should still be extracted');
+  assert.equal(bare3.confidence, 'low');
+});
+
+test('parseAnswerText: bare integer-only with no unit and no decimal is low confidence', () => {
+  // A direct test: literally just "42" on a line.
+  const out = parseAnswerText('Intro\n42\nOutro');
+  const bare = out.computedValues.find(function (cv) { return cv.value === '42'; });
+  assert.equal(bare.confidence, 'low');
+});
+
+test('parseAnswerText: bare value WITH unit stays medium confidence (legitimate split-line case)', () => {
+  // Post-normalisation, "1.0000×10\n−6\nH" collapses to "1.0000e-6 H" on one line.
+  // That is the legitimate medium-confidence case.
+  const out = parseAnswerText('1.0000×10\n−6\nH');
+  assert.equal(out.computedValues.length, 1);
+  assert.equal(out.computedValues[0].raw, '1.0000e-6 H');
+  assert.equal(out.computedValues[0].confidence, 'medium');
+});
+
+test('parseAnswerText: bare decimal value (no unit) stays medium confidence', () => {
+  // A decimal like "0.0352" is unambiguously answer-shaped even without a unit.
+  const out = parseAnswerText('Result:\n0.0352\nThank you');
+  const bare = out.computedValues.find(function (cv) { return cv.value === '0.0352'; });
+  assert.equal(bare.confidence, 'medium');
+});
+
+test('parseAnswerText: STOP_UNITS rejects "here" as a unit', () => {
+  // "The answer is 42 here it is" — the EQUALS pattern picks up "answer is 42 here";
+  // STOP_UNITS strips "here", leaving value 42 with no unit.
+  const out = parseAnswerText('The answer is 42 here');
+  const cv = out.computedValues[0];
+  assert.equal(cv.value, '42');
+  assert.equal(cv.unit, '');
+});
+
+test('parseAnswerText: STOP_UNITS rejects "note", "next", "also" as units', () => {
+  ['note', 'next', 'also'].forEach(function (word) {
+    const out = parseAnswerText('The answer is 7 ' + word + '.');
+    const cv = out.computedValues[0];
+    assert.equal(cv.unit, '', 'prose word "' + word + '" must not be captured as a unit');
+  });
+});
+
+// --- Uncovered edge cases listed in the final review ---
+
+test('parseAnswerText: negative number in a labeled answer', () => {
+  const out = parseAnswerText('Q1: -3.14 rad');
+  assert.equal(out.computedValues.length, 1);
+  assert.equal(out.computedValues[0].value, '-3.14');
+  assert.equal(out.computedValues[0].unit, 'rad');
+  assert.equal(out.computedValues[0].label, '1');
+  assert.equal(out.computedValues[0].confidence, 'high');
+});
+
+test('parseAnswerText: scientific notation in a "Question N:" labeled answer', () => {
+  const out = parseAnswerText('Question 1: 1.0×10^-6 H');
+  assert.equal(out.computedValues.length, 1);
+  assert.equal(out.computedValues[0].value, '1.0e-6');
+  assert.equal(out.computedValues[0].unit, 'H');
+  assert.equal(out.computedValues[0].label, '1');
+  assert.equal(out.computedValues[0].confidence, 'high');
+});
+
+test('parseAnswerText: "value is X" pattern extracts the value', () => {
+  const out = parseAnswerText('The value is 9.81 m');
+  assert.equal(out.computedValues.length, 1);
+  assert.equal(out.computedValues[0].value, '9.81');
+  assert.equal(out.computedValues[0].unit, 'm');
+  assert.equal(out.computedValues[0].confidence, 'high');
+});
+
+test('parseAnswerText: "outcome is X" pattern extracts the value', () => {
+  const out = parseAnswerText('The outcome is 42 J.');
+  assert.equal(out.computedValues.length, 1);
+  assert.equal(out.computedValues[0].value, '42');
+  assert.equal(out.computedValues[0].unit, 'J');
+  assert.equal(out.computedValues[0].confidence, 'high');
+});
