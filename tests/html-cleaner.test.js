@@ -317,3 +317,121 @@ test('mismatched number — "Question 2" followed by "1. body" — no stripping 
   const { cleanText } = cleanSelectionHtml(input);
   assert.match(cleanText, /Question 2\n\n1\. unrelated/);
 });
+
+// --- MathJax v2 noisy-selection regression tests --------------------------------
+
+function mjInline(latex, rendered, assistive) {
+  // Builds a MathJax-v2-style selection fragment: visual preview + assistive
+  // pronunciation span + math/tex source. Cleaner must collapse to one form.
+  return (
+    '<span class="MathJax_Preview"></span>' +
+    '<span class="MathJax">' + rendered + '</span>' +
+    '<span class="MJX_Assistive_MathML">' + assistive + '</span>' +
+    '<script type="math/tex">' + latex + '</script>'
+  );
+}
+
+test('regression: $500$ noisy copy → "500"', () => {
+  const input = '<p>' + mjInline('500', '500', '500') + '</p>';
+  const { cleanText } = cleanSelectionHtml(input);
+  assert.equal(cleanText.trim(), '500');
+});
+
+test('regression: $10\\,cm$ noisy copy → "10 cm"', () => {
+  const input = '<p>' + mjInline('10\\,cm', '10cm', '10, c, m') + '</p>';
+  const { cleanText } = cleanSelectionHtml(input);
+  assert.equal(cleanText.trim(), '10 cm');
+});
+
+test('regression: $2\\,cm^2$ noisy copy → "2 cm²"', () => {
+  const input = '<p>' + mjInline('2\\,cm^2', '2cm2', '2, c, m, squared') + '</p>';
+  const { cleanText } = cleanSelectionHtml(input);
+  assert.equal(cleanText.trim(), '2 cm²');
+});
+
+test('regression: $t=0$ noisy copy → "t=0"', () => {
+  const input = '<p>' + mjInline('t=0', 't=0', 't, equals, 0') + '</p>';
+  const { cleanText } = cleanSelectionHtml(input);
+  assert.equal(cleanText.trim(), 't=0');
+});
+
+test('regression: $\\Omega$ noisy copy → "Ω"', () => {
+  const input = '<p>' + mjInline('\\Omega', 'Ω', '\\Omega') + '</p>';
+  const { cleanText } = cleanSelectionHtml(input);
+  assert.equal(cleanText.trim(), 'Ω');
+});
+
+test('regression: $10\\,\\Omega$ noisy copy → "10 Ω"', () => {
+  const input = '<p>' + mjInline('10\\,\\Omega', '10Ω', '10, \\Omega') + '</p>';
+  const { cleanText } = cleanSelectionHtml(input);
+  assert.equal(cleanText.trim(), '10 Ω');
+});
+
+test('regression: $200\\,mH$ noisy copy → "200 mH"', () => {
+  const input = '<p>' + mjInline('200\\,mH', '200mH', '200, m, H') + '</p>';
+  const { cleanText } = cleanSelectionHtml(input);
+  assert.equal(cleanText.trim(), '200 mH');
+});
+
+test('regression: $57\\,\\mu H$ noisy copy → "57 μH"', () => {
+  const input = '<p>' + mjInline('57\\,\\mu H', '57μH', '57, mu, H') + '</p>';
+  const { cleanText } = cleanSelectionHtml(input);
+  assert.equal(cleanText.trim(), '57 μH');
+});
+
+test('regression: $1\\,H$ noisy copy → "1 H"', () => {
+  const input = '<p>' + mjInline('1\\,H', '1H', '1, H') + '</p>';
+  const { cleanText } = cleanSelectionHtml(input);
+  assert.equal(cleanText.trim(), '1 H');
+});
+
+test('regression: $1\\,Vs/A$ noisy copy → "1 Vs/A"', () => {
+  const input = '<p>' + mjInline('1\\,Vs/A', '1Vs/A', '1, V, s, slash, A') + '</p>';
+  const { cleanText } = cleanSelectionHtml(input);
+  assert.equal(cleanText.trim(), '1 Vs/A');
+});
+
+test('regression: $6.3\\,MHz$ noisy copy → "6.3 MHz"', () => {
+  const input = '<p>' + mjInline('6.3\\,MHz', '6.3MHz', '6, point, 3, M, H, z') + '</p>';
+  const { cleanText } = cleanSelectionHtml(input);
+  assert.equal(cleanText.trim(), '6.3 MHz');
+});
+
+test('regression: $LC$ noisy copy → "LC"', () => {
+  const input = '<p>' + mjInline('LC', 'LC', 'L, C') + '</p>';
+  const { cleanText } = cleanSelectionHtml(input);
+  assert.equal(cleanText.trim(), 'LC');
+});
+
+test('regression: complex \\frac{1}{2} stays as LaTeX (visible-text fallback)', () => {
+  const input = '<p>' + mjInline('\\frac{1}{2}', '12', '1, over, 2') + '</p>';
+  const { cleanText } = cleanSelectionHtml(input);
+  assert.match(cleanText, /\$\\frac\{1\}\{2\}\$/);
+});
+
+test('regression: full Coursera-like question shape ends up clean', () => {
+  const input =
+    '<h2>Question 1</h2>' +
+    '<p>1. A toroidal inductor consists of ' +
+    mjInline('500', '500', '500') +
+    ' turns around a toroid of radius ' +
+    mjInline('10\\,cm', '10cm', '10, c, m') +
+    ', and cross sectional area ' +
+    mjInline('2\\,cm^2', '2cm2', '2, c, m, squared') +
+    '. What is the inductance in ' +
+    mjInline('H', 'H', 'H') +
+    '? Note that ' +
+    mjInline('1\\,H = 1\\,Vs/A', '1H=1Vs/A', '1, H, equals, 1, V, s, slash, A') +
+    '.</p>' +
+    '<p>​</p>' +
+    '<p>1 point</p>';
+  const { cleanText } = cleanSelectionHtml(input);
+  // Visible math, no duplicate "1." prefix, no zero-width line, worth marker intact.
+  assert.match(cleanText, /A toroidal inductor consists of 500 turns around a toroid of radius 10 cm, and cross sectional area 2 cm²/);
+  assert.match(cleanText, /What is the inductance in H\?/);
+  assert.match(cleanText, /Note that 1 H = 1 Vs\/A/);
+  assert.match(cleanText, /1 point/);
+  assert.match(cleanText, /Question 1/);
+  // No noisy pronunciation text leaked through.
+  assert.doesNotMatch(cleanText, /squared|equals|slash/);
+});
