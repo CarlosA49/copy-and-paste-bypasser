@@ -3,8 +3,8 @@ const assert = require('node:assert/strict');
 const { parseAnswerText } = require('../lib/answer-parser.js');
 
 test('parseAnswerText: returns empty result for empty/whitespace input', () => {
-  assert.deepEqual(parseAnswerText(''), { letters: [], numbers: [], quotedSnippets: [], rawText: '' });
-  assert.deepEqual(parseAnswerText('   \n\t '), { letters: [], numbers: [], quotedSnippets: [], rawText: '   \n\t ' });
+  assert.deepEqual(parseAnswerText(''), { letters: [], numbers: [], quotedSnippets: [], computedValues: [], rawText: '' });
+  assert.deepEqual(parseAnswerText('   \n\t '), { letters: [], numbers: [], quotedSnippets: [], computedValues: [], rawText: '   \n\t ' });
 });
 
 test('parseAnswerText: extracts single capital-letter answer from "The answer is A."', () => {
@@ -88,4 +88,46 @@ test('parseAnswerText: extracts "answer N" branch', () => {
 test('parseAnswerText: deduplicates quoted snippets case-insensitively', () => {
   const out = parseAnswerText('Pick "alpha" and "alpha" then "ALPHA" then "beta"');
   assert.deepEqual(out.quotedSnippets, ['alpha', 'beta']);
+});
+
+test('parseAnswerText: extracts plain "answer is X" computed value', () => {
+  const out = parseAnswerText('The answer is 500 turns.');
+  assert.deepEqual(out.computedValues, [{ value: '500', unit: 'turns', raw: '500 turns' }]);
+});
+
+test('parseAnswerText: extracts numeric-only "answer is X" (no unit)', () => {
+  const out = parseAnswerText('Therefore the answer is 42.');
+  assert.deepEqual(out.computedValues, [{ value: '42', unit: '', raw: '42' }]);
+});
+
+test('parseAnswerText: extracts "L = 200 mH" via the equals-with-unit pattern', () => {
+  const out = parseAnswerText('After integrating, L = 200 mH.');
+  assert.deepEqual(out.computedValues, [{ value: '200', unit: 'mH', raw: '200 mH' }]);
+});
+
+test('parseAnswerText: extracts decimal value (6.3 MHz)', () => {
+  const out = parseAnswerText('Solving, f = 6.3 MHz.');
+  assert.deepEqual(out.computedValues, [{ value: '6.3', unit: 'MHz', raw: '6.3 MHz' }]);
+});
+
+test('parseAnswerText: deduplicates identical computed values', () => {
+  const out = parseAnswerText('Step 1: f = 6.3 MHz. Step 2: confirm f = 6.3 MHz.');
+  assert.equal(out.computedValues.length, 1);
+  assert.equal(out.computedValues[0].raw, '6.3 MHz');
+});
+
+test('parseAnswerText: returns empty computedValues for non-numeric prose', () => {
+  const out = parseAnswerText('Pick option A then explain why.');
+  assert.deepEqual(out.computedValues, []);
+});
+
+test('parseAnswerText: computedValues coexists with letters/numbers/snippets', () => {
+  const out = parseAnswerText('Pick A then compute: L = 200 mH.');
+  assert.deepEqual(out.letters, ['A']);
+  assert.equal(out.computedValues.length, 1);
+  assert.equal(out.computedValues[0].raw, '200 mH');
+});
+
+test('parseAnswerText: returns empty computedValues array for empty input', () => {
+  assert.deepEqual(parseAnswerText('').computedValues, []);
 });
