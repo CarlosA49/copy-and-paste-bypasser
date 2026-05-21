@@ -14,7 +14,16 @@
         "https://*.coursera.org/*",
         "https://coursera.org/*"
       ],
-      "js": ["lib/cleaner.js", "lib/html-cleaner.js", "lib/typing-engine.js", "lib/typing-injector.js", "lib/sidebar.js", "content.js"],
+      "js": [
+        "lib/cleaner.js",
+        "lib/html-cleaner.js",
+        "lib/typing-engine.js",
+        "lib/typing-injector.js",
+        "lib/answer-parser.js",
+        "lib/answer-matcher.js",
+        "lib/sidebar.js",
+        "content.js"
+      ],
       "css": ["lib/sidebar.css"],
       "run_at": "document_start",
       "all_frames": true
