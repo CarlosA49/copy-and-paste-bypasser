@@ -26,7 +26,7 @@ test('MathJax v2 inline equation becomes math + mtext + annotation; plain text i
   // Visual MathJax span and source script are gone.
   assert.doesNotMatch(cleanHtml, /class="MathJax/);
   assert.doesNotMatch(cleanHtml, /<script/);
-  // assert.equal(cleanText.trim(), '$x = 5$'); // TODO Task 6: enable when plain-text walker handles math
+  assert.equal(cleanText.trim(), '$x = 5$');
 });
 
 test('MathJax v2 display equation becomes math display="block"; plain text emits $$x = 5$$ on its own line', () => {
@@ -37,7 +37,7 @@ test('MathJax v2 display equation becomes math display="block"; plain text emits
   assert.match(cleanHtml, /<math[^>]*display="block"[^>]*>/);
   assert.match(cleanHtml, /<mtext>x = 5<\/mtext>/);
   assert.doesNotMatch(cleanHtml, /MathJax_Display/);
-  // assert.match(cleanText, /\$\$x = 5\$\$/); // TODO Task 6
+  assert.match(cleanText, /\$\$x = 5\$\$/);
 });
 
 test('pre-existing <math> with annotation is preserved (real MathML, no mtext injection)', () => {
@@ -51,7 +51,7 @@ test('pre-existing <math> with annotation is preserved (real MathML, no mtext in
   assert.match(cleanHtml, /<annotation encoding="application\/x-tex">x = 5<\/annotation>/);
   // No <mtext> injection when real MathML is present.
   assert.doesNotMatch(cleanHtml, /<mtext>/);
-  // assert.equal(cleanText.trim(), '$x = 5$'); // TODO Task 6
+  assert.equal(cleanText.trim(), '$x = 5$');
 });
 
 // --- Pass 2: Block-level junk drop -----------------------------------------
@@ -66,7 +66,7 @@ test('a <div> whose text matches a junk pattern is removed; surrounding content 
   assert.doesNotMatch(cleanHtml, /Coursera/i);
   assert.match(cleanHtml, /<p>Keep one\.<\/p>/);
   assert.match(cleanHtml, /<p>Keep two\.<\/p>/);
-  // assert.equal(cleanText, 'Keep one.\n\nKeep two.'); // TODO Task 6
+  assert.equal(cleanText, 'Keep one.\n\nKeep two.');
 });
 
 test('junk inside a <section>: only the junk child block is removed, the section and other children survive', () => {
@@ -134,4 +134,63 @@ test('allow-list tags are preserved with their content', () => {
   assert.match(cleanHtml, /<ul><li>item<\/li><\/ul>/);
   assert.match(cleanHtml, /<strong>bold<\/strong>/);
   assert.match(cleanHtml, /<em>italic<\/em>/);
+});
+
+// --- Plain-text walker -----------------------------------------------------
+
+test('<ol> emits 1. 2. 3. numbering in plain text', () => {
+  const input = '<ol><li>a</li><li>b</li></ol>';
+  const { cleanText } = cleanSelectionHtml(input);
+  assert.equal(cleanText, '1. a\n2. b');
+});
+
+test('<ol start="3"> begins numbering at 3', () => {
+  const input = '<ol start="3"><li>a</li><li>b</li></ol>';
+  const { cleanText } = cleanSelectionHtml(input);
+  assert.equal(cleanText, '3. a\n4. b');
+});
+
+test('<ul> emits - bullets in plain text', () => {
+  const input = '<ul><li>a</li><li>b</li></ul>';
+  const { cleanText } = cleanSelectionHtml(input);
+  assert.equal(cleanText, '- a\n- b');
+});
+
+test('anti-duplication: <li>(a) Force</li> is emitted without an auto 1. prefix', () => {
+  const input = '<ol><li>(a) Force</li><li>(b) Current</li></ol>';
+  const { cleanText } = cleanSelectionHtml(input);
+  assert.equal(cleanText, '(a) Force\n(b) Current');
+});
+
+test('<table> emits tab-separated cells and newline-separated rows', () => {
+  const input = '<table><tr><th>K</th><th>V</th></tr><tr><td>x</td><td>1</td></tr></table>';
+  const { cleanText } = cleanSelectionHtml(input);
+  assert.equal(cleanText, 'K\tV\nx\t1');
+});
+
+test('<br> becomes \\n in plain text', () => {
+  const input = '<p>a<br>b</p>';
+  const { cleanText } = cleanSelectionHtml(input);
+  assert.equal(cleanText, 'a\nb');
+});
+
+test('anchor with text identical to href emits only the href once', () => {
+  const input = '<a href="http://x">http://x</a>';
+  const { cleanText } = cleanSelectionHtml(input);
+  assert.equal(cleanText, 'http://x');
+});
+
+test('anchor with text differing from href emits "text (href)"', () => {
+  const input = '<a href="http://x">click here</a>';
+  const { cleanText } = cleanSelectionHtml(input);
+  assert.equal(cleanText, 'click here (http://x)');
+});
+
+test('paranoid final pass: top-level text node containing junk is removed', () => {
+  // Edge case: a junk phrase that didn't sit inside any block element. The
+  // block-level junk drop misses it, but the cleanCopiedText paragraph filter
+  // catches it during the final pass.
+  const input = '<p>Real content.</p>\n\nDo you understand?.';
+  const { cleanText } = cleanSelectionHtml(input);
+  assert.equal(cleanText, 'Real content.');
 });
