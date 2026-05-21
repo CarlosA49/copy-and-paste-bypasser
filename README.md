@@ -63,6 +63,16 @@ Auto Typer types text into the editable field you focused most recently. To use:
 
 The Auto Typer only writes to the editable element you focused before clicking Start; it cannot run hidden or without an explicit user action.
 
+### Answering for you
+
+Paste the answer text you want to apply (for example: "The correct answers are A and C" or a quoted option phrase like "Gradient descent"). Click **Apply to page** and the extension will:
+
+1. Parse letter answers (A, B, C…), numeric option references (`option 2`, `#3`), and quoted option text.
+2. Scan the current page for radio / checkbox groups (including ARIA `role="radio"` / `role="checkbox"`).
+3. Tick the matching option(s). Radio groups receive a single selection; checkbox groups receive all matches.
+
+Nothing is sent off-device — parsing and matching happen entirely in the content script.
+
 ### Resizing
 
 Drag the left edge of the panel to resize between 280 and 640 pixels wide.
