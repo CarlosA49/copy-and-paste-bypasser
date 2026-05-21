@@ -16,6 +16,7 @@
       ],
       "js": [
         "lib/cleaner.js",
+        "lib/math-flatten.js",
         "lib/html-cleaner.js",
         "lib/typing-engine.js",
         "lib/typing-injector.js",
