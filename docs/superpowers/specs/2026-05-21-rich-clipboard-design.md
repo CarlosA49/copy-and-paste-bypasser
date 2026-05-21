@@ -98,7 +98,23 @@ Replace the entire MathJax tree (the outermost `.MathJax*` / `<math>` ancestor) 
 </semantics></math>
 ```
 
-If we already have MathML available (paths 2 or 5), preserve it inside `<semantics>` and append the `<annotation>`. If we only have LaTeX (paths 1, 3, 4), the `<math>` element contains only the `<annotation>`. Renderers that handle MathML will use the rendered nodes; AI tools that read text will see the LaTeX in the annotation.
+If we already have MathML available (paths 2 or 5), preserve it inside `<semantics>` and append the `<annotation>`. If we only have LaTeX (paths 1, 3, 4), emit an `<mtext>LATEX</mtext>` as the visible primary child alongside the `<annotation>` — a `<math>` element with only an `<annotation>` renders blank in many rich-text targets, so the `<mtext>` ensures the LaTeX shows up as readable text wherever MathML rendering falls back. Renderers that handle MathML will display the rendered nodes (or the `<mtext>` fallback); AI tools that read text will see the LaTeX in the annotation either way.
+
+Concrete shapes:
+
+```html
+<!-- MathML available (paths 2 or 5) -->
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><semantics>
+  <mrow>…rendered MathML…</mrow>
+  <annotation encoding="application/x-tex">LATEX</annotation>
+</semantics></math>
+
+<!-- LaTeX-only (paths 1, 3, 4) -->
+<math xmlns="http://www.w3.org/1998/Math/MathML" display="inline"><semantics>
+  <mtext>LATEX</mtext>
+  <annotation encoding="application/x-tex">LATEX</annotation>
+</semantics></math>
+```
 
 Notes:
 - Multiple parallel MathJax renderings of the same equation collapse to one `<math>` element.
@@ -213,9 +229,9 @@ Required test cases:
 1. **No-op input** — clean text with no junk and no math passes through structurally intact.
 2. **Junk `<div>` drop** — a `<div>` whose textContent matches `\bcoursera\b` is removed from the HTML; surrounding content survives.
 3. **Junk inside a `<section>`** — only the junk child block is removed, the section and its other children survive.
-4. **MathJax v2 inline equation** — `<span class="MathJax">…</span><script type="math/tex">x = 5</script>` becomes one `<math>` with `<annotation>x = 5</annotation>`; plain text is `$x = 5$`.
+4. **MathJax v2 inline equation** — `<span class="MathJax">…</span><script type="math/tex">x = 5</script>` becomes one `<math>` containing `<mtext>x = 5</mtext>` and `<annotation>x = 5</annotation>` (LaTeX-only path → mtext visible fallback); plain text is `$x = 5$`.
 5. **MathJax v2 display equation** — same as above but `mode=display`, output uses `display="block"` and plain text emits `$$…$$` on its own line.
-6. **MathML w/ annotation** — pre-existing `<math><semantics><annotation encoding="application/x-tex">…</annotation></semantics></math>` is kept intact; MathML rendering survives.
+6. **MathML w/ annotation** — pre-existing `<math><semantics><mrow>…</mrow><annotation encoding="application/x-tex">…</annotation></semantics></math>` is kept intact (real MathML preserved, no `<mtext>` injected); MathML rendering survives.
 7. **Attribute stripping** — input element `<p class="x" style="color:red" data-foo="bar" id="z">Hi</p>` becomes `<p>Hi</p>`.
 8. **Tag unwrap** — `<font color="red">word</font>` produces just `word`; non-allowed tags disappear, content stays.
 9. **Allow-list attributes survive** — `<a href="/x" title="t" class="y">link</a>` becomes `<a href="/x" title="t">link</a>`.
