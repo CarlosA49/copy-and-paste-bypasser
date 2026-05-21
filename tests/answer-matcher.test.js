@@ -254,17 +254,17 @@ test('applyMatches: checks multiple matched checkboxes', () => {
   assert.equal(boxes[2].checked, true);
 });
 
-test('applyMatches: dispatches change and click events on each selected input', () => {
+test('applyMatches: dispatches click, input, change in browser-native order', () => {
   const d = dom('<label><input type="radio" name="q1"> Alpha</label>');
   const g = findOptionGroups(d.body)[0];
   const inp = d.querySelector('input');
-  let changes = 0, clicks = 0;
-  inp.addEventListener('change', function () { changes += 1; });
-  inp.addEventListener('click', function () { clicks += 1; });
+  const fired = [];
+  inp.addEventListener('click',  function () { fired.push('click'); });
+  inp.addEventListener('input',  function () { fired.push('input'); });
+  inp.addEventListener('change', function () { fired.push('change'); });
   const matches = matchCandidates([g], { letters: ['A'], numbers: [], quotedSnippets: [], rawText: '' });
   applyMatches(matches);
-  assert.equal(changes, 1);
-  assert.equal(clicks, 1);
+  assert.deepEqual(fired, ['click', 'input', 'change']);
 });
 
 test('applyMatches: skips matches whose element is detached', () => {
