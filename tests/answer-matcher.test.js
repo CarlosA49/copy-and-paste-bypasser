@@ -628,3 +628,102 @@ test('applyTextMatches: detached element produces skip reason "detached"', () =>
   assert.equal(summary.skipped, 1);
   assert.equal(summary.reasons[0], 'detached');
 });
+
+test('regression: leading "= " removed before fill (chip + actual value)', () => {
+  const d = dom('<input type="text" id="t">');
+  const el = d.getElementById('t');
+  const summary = applyTextMatches([{ el: el, value: '= 1.0e-6 H', reason: 'computedValue' }]);
+  assert.equal(summary.filled, 1);
+  assert.equal(el.value, '1.0e-6 H'); // no "= " prefix in the field
+});
+
+test('regression: value+unit field can fall back to numeric-only', () => {
+  const d = dom('<input type="text" id="t">');
+  const el = d.getElementById('t');
+  // Reject any value containing a letter (units like H/F/etc.).
+  let stored = '';
+  Object.defineProperty(el, 'value', {
+    configurable: true,
+    get: function () { return stored; },
+    set: function (v) { stored = /[A-Za-z]/.test(v) ? '' : String(v); },
+  });
+  // The value has "e" in "1.0e-6" so that ALSO fails the letter test.
+  // The final fallback variant is the plain-decimal expansion "0.000001".
+  const summary = applyTextMatches([{ el: el, value: '1.0e-6 H', reason: 'computedValue' }]);
+  assert.equal(summary.filled, 1);
+  assert.equal(el.value, '0.000001');
+});
+
+test('regression: every variant rejected → field is skipped with a reason', () => {
+  const d = dom('<input type="text" id="t">');
+  const el = d.getElementById('t');
+  // Reject every set attempt.
+  Object.defineProperty(el, 'value', {
+    configurable: true,
+    get: function () { return ''; },
+    set: function () { /* swallow */ },
+  });
+  const summary = applyTextMatches([{ el: el, value: '1.0e-6 H', reason: 'computedValue' }]);
+  assert.equal(summary.filled, 0);
+  assert.equal(summary.skipped, 1);
+  // Reason is one of the canonical machine-readable codes.
+  assert.ok(['rejected-empty', 'value-did-not-stick'].indexOf(summary.reasons[0]) !== -1);
+});
+
+test('regression: a failed field does not stop subsequent fields from filling', () => {
+  const d = dom(
+    '<input type="text" id="bad">' +
+    '<input type="text" id="ok">' +
+    '<input type="text" id="also-ok">'
+  );
+  const bad = d.getElementById('bad');
+  // bad rejects everything.
+  Object.defineProperty(bad, 'value', {
+    configurable: true,
+    get: function () { return ''; },
+    set: function () {},
+  });
+  const summary = applyTextMatches([
+    { el: bad, value: 'a', reason: 'computedValue' },
+    { el: d.getElementById('ok'), value: 'b', reason: 'computedValue' },
+    { el: d.getElementById('also-ok'), value: 'c', reason: 'computedValue' },
+  ]);
+  assert.equal(summary.filled, 2);
+  assert.equal(summary.skipped, 1);
+  assert.equal(d.getElementById('ok').value, 'b');
+  assert.equal(d.getElementById('also-ok').value, 'c');
+});
+
+test('regression: hidden / aria-hidden / display:none inputs are NOT discovered', () => {
+  const d = dom(
+    '<input type="hidden" name="csrf">' +
+    '<input type="text" id="ok-1">' +
+    '<input type="text" id="hidden-1" hidden>' +
+    '<div style="display:none"><input type="text" id="hidden-2"></div>' +
+    '<div aria-hidden="true"><input type="text" id="hidden-3"></div>' +
+    '<input type="text" id="ok-2">'
+  );
+  const list = findTextInputs(d.body);
+  assert.equal(list.length, 2);
+  const ids = list.map(function (x) { return x.el.id; });
+  assert.deepEqual(ids, ['ok-1', 'ok-2']);
+});
+
+test('regression: 12 visible answer boxes + 12 values fills 12/12 (no off-by-N)', () => {
+  let html = '<input type="hidden" name="csrf">';
+  for (let i = 0; i < 12; i++) html += '<input type="text" name="q' + i + '">';
+  html += '<div style="display:none"><input type="text" name="internal-react"></div>';
+  const d = dom(html);
+  const inputs = findTextInputs(d.body);
+  assert.equal(inputs.length, 12);
+
+  const parsed = { computedValues: [] };
+  for (let i = 0; i < 12; i++) {
+    parsed.computedValues.push({ value: String(i + 1), unit: 'H', raw: (i + 1) + ' H', confidence: 'high', label: String(i + 1) });
+  }
+  const matches = matchTextInputs(inputs, parsed);
+  assert.equal(matches.length, 12);
+  const summary = applyTextMatches(matches);
+  assert.equal(summary.filled, 12);
+  assert.equal(summary.skipped, 0);
+});
