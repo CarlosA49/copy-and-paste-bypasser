@@ -462,12 +462,16 @@ test('applyTextMatches: skips detached elements', () => {
   assert.equal(summary.skipped, 1);
 });
 
-test('applyTextMatches: returns { filled: 0, skipped: 0 } for empty list', () => {
-  assert.deepEqual(applyTextMatches([]), { filled: 0, skipped: 0 });
+test('applyTextMatches: returns filled:0, skipped:0 for empty list', () => {
+  const s = applyTextMatches([]);
+  assert.equal(s.filled, 0);
+  assert.equal(s.skipped, 0);
 });
 
-test('applyTextMatches: returns { filled: 0, skipped: 0 } for non-array input', () => {
-  assert.deepEqual(applyTextMatches(null), { filled: 0, skipped: 0 });
+test('applyTextMatches: returns filled:0, skipped:0 for non-array input', () => {
+  const s = applyTextMatches(null);
+  assert.equal(s.filled, 0);
+  assert.equal(s.skipped, 0);
 });
 
 test('findTextInputs: skips <input type="hidden">', () => {
@@ -535,4 +539,92 @@ test('findTextInputs: 12 visible answer boxes among extra hidden inputs counts e
   const d = dom(html);
   const list = findTextInputs(d.body);
   assert.equal(list.length, 12);
+});
+
+test('applyTextMatches: strips leading "= " from the raw value before filling', () => {
+  const d = dom('<input type="text" id="t">');
+  const el = d.getElementById('t');
+  applyTextMatches([{ el: el, value: '= 1.0e-6 H', reason: 'computedValue' }]);
+  // The "= " prefix is stripped before the field is touched.
+  assert.equal(el.value, '1.0e-6 H');
+});
+
+test('applyTextMatches: strips "answer = " / "Final: " prefixes', () => {
+  const d = dom('<input type="text" id="t">');
+  const el = d.getElementById('t');
+  applyTextMatches([{ el: el, value: 'Final: answer = 42 J', reason: 'computedValue' }]);
+  assert.equal(el.value, '42 J');
+});
+
+test('applyTextMatches: falls back to numeric-only when full raw is rejected', () => {
+  const d = dom('<input type="text" id="t">');
+  const el = d.getElementById('t');
+  // Override the value descriptor to reject letters.
+  let storedValue = '';
+  Object.defineProperty(el, 'value', {
+    configurable: true,
+    get: function () { return storedValue; },
+    set: function (v) { storedValue = /[A-Za-z]/.test(v) ? '' : String(v); },
+  });
+  const summary = applyTextMatches([{ el: el, value: '1.0e-6 H', reason: 'computedValue' }]);
+  // Variant 0 "1.0e-6 H" contains letters → rejected. Variant 1 "1.0e-6"
+  // contains 'e' which is also a letter → rejected. Variant 2 plain-decimal
+  // "0.000001" has no letters → accepted.
+  assert.equal(summary.filled, 1);
+  assert.equal(el.value, '0.000001');
+});
+
+test('applyTextMatches: records a skip reason when every variant is rejected', () => {
+  const d = dom('<input type="text" id="t">');
+  const el = d.getElementById('t');
+  // Reject every set attempt entirely.
+  let storedValue = '';
+  Object.defineProperty(el, 'value', {
+    configurable: true,
+    get: function () { return storedValue; },
+    set: function (_v) { storedValue = ''; },
+  });
+  const summary = applyTextMatches([{ el: el, value: '1.0e-6 H', reason: 'computedValue' }]);
+  assert.equal(summary.filled, 0);
+  assert.equal(summary.skipped, 1);
+  assert.ok(Array.isArray(summary.reasons));
+  assert.equal(summary.reasons.length, 1);
+  // Reason is the canonical machine-readable code; sidebar translates to human text.
+  assert.ok(summary.reasons[0] === 'rejected-empty' || summary.reasons[0] === 'value-did-not-stick');
+});
+
+test('applyTextMatches: one failed field does not stop subsequent fills', () => {
+  const d = dom('<input type="text" id="bad"><input type="text" id="ok">');
+  const bad = d.getElementById('bad');
+  const ok = d.getElementById('ok');
+  // bad rejects everything; ok accepts.
+  Object.defineProperty(bad, 'value', {
+    configurable: true,
+    get: function () { return ''; },
+    set: function () { /* swallow */ },
+  });
+  const summary = applyTextMatches([
+    { el: bad, value: '1.0e-6 H', reason: 'computedValue' },
+    { el: ok,  value: '0.0352 H', reason: 'computedValue' },
+  ]);
+  assert.equal(summary.filled, 1);
+  assert.equal(summary.skipped, 1);
+  assert.equal(ok.value, '0.0352 H');
+});
+
+test('applyTextMatches: returns reasons:[] when input list is empty', () => {
+  const summary = applyTextMatches([]);
+  assert.equal(summary.filled, 0);
+  assert.equal(summary.skipped, 0);
+  assert.deepEqual(summary.reasons, []);
+});
+
+test('applyTextMatches: detached element produces skip reason "detached"', () => {
+  const d = dom('<input type="text" id="t">');
+  const el = d.getElementById('t');
+  el.remove();
+  const summary = applyTextMatches([{ el: el, value: 'x', reason: 'computedValue' }]);
+  assert.equal(summary.filled, 0);
+  assert.equal(summary.skipped, 1);
+  assert.equal(summary.reasons[0], 'detached');
 });
