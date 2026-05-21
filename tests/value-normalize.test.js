@@ -92,3 +92,28 @@ test('normalizeAnswerText: does NOT touch year-like numbers ("2024 was a leap ye
   // 2024 is preceded by a digit boundary, not part of sci notation.
   assert.equal(normalizeAnswerText('2024 was a leap year'), '2024 was a leap year');
 });
+
+test('normalizeAnswerText: split sci notation across 2 lines is joined', () => {
+  // Coefficient on one line, exponent on the next.
+  const input = '1.0000×10\n-6';
+  const out = normalizeAnswerText(input);
+  // After the line-join + canonicalisation: "1.0000e-6"
+  assert.equal(out, '1.0000e-6');
+});
+
+test('normalizeAnswerText: split sci notation across 3 lines (coefficient / exponent / unit)', () => {
+  const input = '1.0000×10\n−6\nH';
+  const out = normalizeAnswerText(input);
+  // Coefficient + exponent collapse onto one line; the unit stays separated
+  // by a space (we don't fold arbitrary line content into the value, just the exponent).
+  assert.equal(out, '1.0000e-6 H');
+});
+
+test('normalizeAnswerText: split sci notation does NOT join unrelated next line', () => {
+  // "2024 was..." after "value 10^N" should not be absorbed as an exponent.
+  // (Our join rule requires the next line to be a signed integer only.)
+  const input = '1.0000×10\nNot an exponent here';
+  const out = normalizeAnswerText(input);
+  // No join — the next line isn't just a signed number.
+  assert.equal(out.indexOf('Not an exponent here'), out.length - 'Not an exponent here'.length);
+});
