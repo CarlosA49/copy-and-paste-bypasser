@@ -255,3 +255,28 @@ test('parseAnswerText: numbered list with Unicode superscript exponent in value'
   const out = parseAnswerText('1. 1.0000×10⁻⁶ H\n2. 0.0352 H');
   assert.equal(out.computedValues[0].value, '1.0000e-6');
 });
+
+test('parseAnswerText: inline last-value picks final "= X UNIT" in a paragraph', () => {
+  const out = parseAnswerText('T = 1/f = 0.0167 s');
+  assert.equal(out.computedValues.length, 1);
+  assert.equal(out.computedValues[0].value, '0.0167');
+  assert.equal(out.computedValues[0].unit, 's');
+  assert.equal(out.computedValues[0].confidence, 'low');
+});
+
+test('parseAnswerText: each paragraph contributes one inline last-value', () => {
+  const out = parseAnswerText('Para A: T = 1/f = 0.0167 s.\n\nPara B: V = IR = 5 V.');
+  assert.equal(out.computedValues.length, 2);
+  // Order is document position; both are low confidence.
+  assert.ok(out.computedValues.some(function (cv) { return cv.value === '0.0167' && cv.unit === 's'; }));
+  assert.ok(out.computedValues.some(function (cv) { return cv.value === '5' && cv.unit === 'V'; }));
+  assert.ok(out.computedValues.every(function (cv) { return cv.confidence === 'low'; }));
+});
+
+test('parseAnswerText: labeled and inline coexist (labeled wins for same value)', () => {
+  // "The answer is 42 kg" matches labeled (high). "42 kg = 42 kg." matches inline (low).
+  // After dedup by value|unit, only the high-confidence entry survives.
+  const out = parseAnswerText('The answer is 42 kg. Sanity: 42 kg = 42 kg.');
+  assert.equal(out.computedValues.length, 1);
+  assert.equal(out.computedValues[0].confidence, 'high');
+});
