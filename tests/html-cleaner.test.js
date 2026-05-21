@@ -26,7 +26,7 @@ test('MathJax v2 inline equation becomes math + mtext + annotation; plain text i
   // Visual MathJax span and source script are gone.
   assert.doesNotMatch(cleanHtml, /class="MathJax/);
   assert.doesNotMatch(cleanHtml, /<script/);
-  assert.equal(cleanText.trim(), '$x = 5$');
+  assert.equal(cleanText.trim(), 'x = 5');
 });
 
 test('MathJax v2 display equation becomes math display="block"; plain text emits $$x = 5$$ on its own line', () => {
@@ -51,7 +51,7 @@ test('pre-existing <math> with annotation is preserved (real MathML, no mtext in
   assert.match(cleanHtml, /<annotation encoding="application\/x-tex">x = 5<\/annotation>/);
   // No <mtext> injection when real MathML is present.
   assert.doesNotMatch(cleanHtml, /<mtext>/);
-  assert.equal(cleanText.trim(), '$x = 5$');
+  assert.equal(cleanText.trim(), 'x = 5');
 });
 
 // --- Pass 2: Block-level junk drop -----------------------------------------
@@ -226,9 +226,9 @@ test('full Coursera quiz question: boilerplate dropped, equation rendered, answe
   assert.match(cleanHtml, /<ol>\s*<li>Force<\/li>/);
   assert.match(cleanHtml, /<p>1 point<\/p>/);
 
-  // Plain text: boilerplate gone, math is $x = 5$, answers numbered 1.–4.
+  // Plain text: boilerplate gone, math is x = 5 (visible form), answers numbered 1.–4.
   assert.match(cleanText, /Question 1/);
-  assert.match(cleanText, /\$x = 5\$/);
+  assert.match(cleanText, /(?<![\\$])x = 5(?![\\$])/);
   assert.match(cleanText, /1\. Force/);
   assert.match(cleanText, /2\. Current/);
   assert.match(cleanText, /3\. Voltage/);
