@@ -131,3 +131,43 @@ test('parseAnswerText: computedValues coexists with letters/numbers/snippets', (
 test('parseAnswerText: returns empty computedValues array for empty input', () => {
   assert.deepEqual(parseAnswerText('').computedValues, []);
 });
+
+test('parseAnswerText: chained equality (T = 1/f = 0.0167 s) picks the LAST equals', () => {
+  const out = parseAnswerText('T = 1/f = 0.0167 s');
+  // Only one computed value emitted via the equals branch, and it's the final value.
+  assert.equal(out.computedValues.length, 1);
+  assert.equal(out.computedValues[0].value, '0.0167');
+  assert.equal(out.computedValues[0].unit, 's');
+  assert.equal(out.computedValues[0].raw, '0.0167 s');
+});
+
+test('parseAnswerText: longer chain (I = V/R = 5/10 = 0.5 A) picks 0.5 A only', () => {
+  const out = parseAnswerText('I = V/R = 5/10 = 0.5 A');
+  assert.equal(out.computedValues.length, 1);
+  assert.equal(out.computedValues[0].raw, '0.5 A');
+});
+
+test('parseAnswerText: explicit "answer is X" still wins, even with chained equals after it', () => {
+  const out = parseAnswerText('The answer is 42 kg. Sanity: 42 kg = 42 kg.');
+  // Answer-pattern produces 42 kg; equals-pattern would also match "= 42 kg"
+  // (the last one); the dedup on value+unit key collapses them to one.
+  assert.equal(out.computedValues.length, 1);
+  assert.equal(out.computedValues[0].raw, '42 kg');
+});
+
+test('parseAnswerText: stop-word "and" is NOT captured as a unit', () => {
+  const out = parseAnswerText('x = 5 and y = 3');
+  // EQUALS_PATTERN now keeps only the LAST match, so this becomes value=3 with no unit.
+  assert.equal(out.computedValues.length, 1);
+  assert.equal(out.computedValues[0].value, '3');
+  assert.equal(out.computedValues[0].unit, '');
+  assert.equal(out.computedValues[0].raw, '3');
+});
+
+test('parseAnswerText: stop-word "then" is NOT captured as a unit (single equation)', () => {
+  // ANSWER_PATTERN matches "answer is 7 then" — "then" must be rejected as a unit.
+  const out = parseAnswerText('The answer is 7 then move on.');
+  assert.equal(out.computedValues.length, 1);
+  assert.equal(out.computedValues[0].value, '7');
+  assert.equal(out.computedValues[0].unit, '');
+});
