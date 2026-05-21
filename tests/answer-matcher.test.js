@@ -359,3 +359,52 @@ test('findTextInputs: preserves discovery order', () => {
   const list = findTextInputs(d.body);
   assert.deepEqual(list.map(function (x) { return x.el.id; }), ['a', 'b', 'c']);
 });
+
+const { matchTextInputs } = require('../lib/answer-matcher.js');
+
+test('matchTextInputs: returns [] when there are no computed values', () => {
+  const d = dom('<input type="text" id="t">');
+  const tis = findTextInputs(d.body);
+  const matches = matchTextInputs(tis, { computedValues: [] });
+  assert.deepEqual(matches, []);
+});
+
+test('matchTextInputs: returns [] when there are no text inputs', () => {
+  const matches = matchTextInputs([], { computedValues: [{ value: '500', unit: '', raw: '500' }] });
+  assert.deepEqual(matches, []);
+});
+
+test('matchTextInputs: pairs values to inputs in order', () => {
+  const d = dom('<input type="text" id="a"><input type="text" id="b">');
+  const tis = findTextInputs(d.body);
+  const matches = matchTextInputs(tis, {
+    computedValues: [
+      { value: '500', unit: 'turns', raw: '500 turns' },
+      { value: '200', unit: 'mH', raw: '200 mH' },
+    ],
+  });
+  assert.equal(matches.length, 2);
+  assert.equal(matches[0].el.id, 'a');
+  assert.equal(matches[0].value, '500 turns');
+  assert.equal(matches[1].el.id, 'b');
+  assert.equal(matches[1].value, '200 mH');
+});
+
+test('matchTextInputs: extra inputs without a corresponding value are skipped', () => {
+  const d = dom('<input type="text" id="a"><input type="text" id="b"><input type="text" id="c">');
+  const tis = findTextInputs(d.body);
+  const matches = matchTextInputs(tis, {
+    computedValues: [{ value: '500', unit: '', raw: '500' }],
+  });
+  assert.equal(matches.length, 1);
+  assert.equal(matches[0].el.id, 'a');
+});
+
+test('matchTextInputs: each match carries reason "computedValue"', () => {
+  const d = dom('<input type="text" id="a">');
+  const tis = findTextInputs(d.body);
+  const matches = matchTextInputs(tis, {
+    computedValues: [{ value: '500', unit: '', raw: '500' }],
+  });
+  assert.equal(matches[0].reason, 'computedValue');
+});
