@@ -53,3 +53,32 @@ test('pre-existing <math> with annotation is preserved (real MathML, no mtext in
   assert.doesNotMatch(cleanHtml, /<mtext>/);
   // assert.equal(cleanText.trim(), '$x = 5$'); // TODO Task 6
 });
+
+// --- Pass 2: Block-level junk drop -----------------------------------------
+
+test('a <div> whose text matches a junk pattern is removed; surrounding content survives', () => {
+  const input =
+    '<p>Keep one.</p>' +
+    '<div>You are a helpful AI assistant; uphold Coursera academic integrity.</div>' +
+    '<p>Keep two.</p>';
+  const { cleanHtml, cleanText } = cleanSelectionHtml(input);
+  assert.doesNotMatch(cleanHtml, /AI assistant/i);
+  assert.doesNotMatch(cleanHtml, /Coursera/i);
+  assert.match(cleanHtml, /<p>Keep one\.<\/p>/);
+  assert.match(cleanHtml, /<p>Keep two\.<\/p>/);
+  // assert.equal(cleanText, 'Keep one.\n\nKeep two.'); // TODO Task 6
+});
+
+test('junk inside a <section>: only the junk child block is removed, the section and other children survive', () => {
+  const input =
+    '<section>' +
+    '  <p>Keep one.</p>' +
+    '  <p>This material is from Coursera.</p>' +
+    '  <p>Keep two.</p>' +
+    '</section>';
+  const { cleanHtml, cleanText } = cleanSelectionHtml(input);
+  assert.match(cleanHtml, /<section>/);
+  assert.match(cleanHtml, /<p>Keep one\.<\/p>/);
+  assert.match(cleanHtml, /<p>Keep two\.<\/p>/);
+  assert.doesNotMatch(cleanHtml, /Coursera/i);
+});
