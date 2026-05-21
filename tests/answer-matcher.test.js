@@ -121,3 +121,93 @@ test('findOptionGroups: anonymous ARIA radiogroups get unique names', () => {
   assert.equal(groups.length, 2);
   assert.notEqual(groups[0].name, groups[1].name, 'anonymous ARIA groups must not collide on name');
 });
+
+const { matchCandidates } = require('../lib/answer-matcher.js');
+
+function radioGroup(d, texts) {
+  texts.forEach(function (t, i) {
+    const label = d.createElement('label');
+    const inp = d.createElement('input');
+    inp.type = 'radio'; inp.name = 'q1';
+    label.appendChild(inp);
+    label.appendChild(d.createTextNode(' ' + t));
+    d.body.appendChild(label);
+  });
+  return findOptionGroups(d.body)[0];
+}
+
+test('matchCandidates: letter A → first option of the group', () => {
+  const d = dom('');
+  const g = radioGroup(d, ['Alpha', 'Beta', 'Gamma']);
+  const matches = matchCandidates([g], { letters: ['A'], numbers: [], quotedSnippets: [], rawText: '' });
+  assert.equal(matches.length, 1);
+  assert.equal(matches[0].option.index, 0);
+  assert.equal(matches[0].reason, 'letter');
+});
+
+test('matchCandidates: letter C → third option', () => {
+  const d = dom('');
+  const g = radioGroup(d, ['Alpha', 'Beta', 'Gamma']);
+  const matches = matchCandidates([g], { letters: ['C'], numbers: [], quotedSnippets: [], rawText: '' });
+  assert.equal(matches[0].option.index, 2);
+});
+
+test('matchCandidates: number 2 → second option', () => {
+  const d = dom('');
+  const g = radioGroup(d, ['Alpha', 'Beta', 'Gamma']);
+  const matches = matchCandidates([g], { letters: [], numbers: [2], quotedSnippets: [], rawText: '' });
+  assert.equal(matches[0].option.index, 1);
+  assert.equal(matches[0].reason, 'number');
+});
+
+test('matchCandidates: quoted snippet → option whose label contains the snippet (case-insensitive)', () => {
+  const d = dom('');
+  const g = radioGroup(d, ['Gradient descent', 'Linear regression', 'Backpropagation']);
+  const matches = matchCandidates([g], { letters: [], numbers: [], quotedSnippets: ['BACKPROP'], rawText: '' });
+  assert.equal(matches[0].option.index, 2);
+  assert.equal(matches[0].reason, 'snippet');
+});
+
+test('matchCandidates: snippet falls back to token-overlap when no direct substring match', () => {
+  const d = dom('');
+  const g = radioGroup(d, ['Stochastic gradient descent optimizer', 'Naive Bayes classifier', 'K-means clustering']);
+  const matches = matchCandidates([g], { letters: [], numbers: [], quotedSnippets: ['stochastic optimizer'], rawText: '' });
+  assert.equal(matches[0].option.index, 0);
+  assert.equal(matches[0].reason, 'overlap');
+});
+
+test('matchCandidates: out-of-range letter is ignored, not clamped', () => {
+  const d = dom('');
+  const g = radioGroup(d, ['Alpha', 'Beta']); // only A, B exist
+  const matches = matchCandidates([g], { letters: ['D'], numbers: [], quotedSnippets: [], rawText: '' });
+  assert.equal(matches.length, 0);
+});
+
+test('matchCandidates: out-of-range number is ignored', () => {
+  const d = dom('');
+  const g = radioGroup(d, ['Alpha', 'Beta']);
+  const matches = matchCandidates([g], { letters: [], numbers: [9], quotedSnippets: [], rawText: '' });
+  assert.equal(matches.length, 0);
+});
+
+test('matchCandidates: radio group caps at one selection even if multiple candidates match', () => {
+  const d = dom('');
+  const g = radioGroup(d, ['Alpha', 'Beta']);
+  const matches = matchCandidates([g], { letters: ['A', 'B'], numbers: [], quotedSnippets: [], rawText: '' });
+  // radio is single-select; only first surviving match is kept
+  assert.equal(matches.length, 1);
+  assert.equal(matches[0].option.index, 0);
+});
+
+test('matchCandidates: checkbox group keeps all matched candidates', () => {
+  const d = dom(
+    '<label><input type="checkbox" name="m"> One</label>' +
+    '<label><input type="checkbox" name="m"> Two</label>' +
+    '<label><input type="checkbox" name="m"> Three</label>'
+  );
+  const g = findOptionGroups(d.body)[0];
+  const matches = matchCandidates([g], { letters: ['A', 'C'], numbers: [], quotedSnippets: [], rawText: '' });
+  assert.equal(matches.length, 2);
+  assert.equal(matches[0].option.index, 0);
+  assert.equal(matches[1].option.index, 2);
+});
