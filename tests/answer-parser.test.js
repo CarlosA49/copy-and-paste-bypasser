@@ -224,3 +224,34 @@ test('parseAnswerText: multiple labeled answers preserve order by document posit
   assert.equal(out.computedValues[2].label, '3');
   assert.ok(out.computedValues.every(function (cv) { return cv.confidence === 'high'; }));
 });
+
+test('parseAnswerText: numbered-list answers get confidence medium and the line number as label', () => {
+  const out = parseAnswerText('1. 1.0000e-6 H\n2. 0.0352 H');
+  assert.equal(out.computedValues.length, 2);
+  assert.equal(out.computedValues[0].value, '1.0000e-6');
+  assert.equal(out.computedValues[0].unit, 'H');
+  assert.equal(out.computedValues[0].confidence, 'medium');
+  assert.equal(out.computedValues[0].label, '1');
+  assert.equal(out.computedValues[1].value, '0.0352');
+  assert.equal(out.computedValues[1].label, '2');
+});
+
+test('parseAnswerText: bullet-list answers (- /•/*) get confidence medium and null label', () => {
+  const out = parseAnswerText('- 1.0000×10^-6 H\n- 0.0352 H');
+  assert.equal(out.computedValues.length, 2);
+  assert.equal(out.computedValues[0].value, '1.0000e-6');
+  assert.equal(out.computedValues[0].confidence, 'medium');
+  assert.equal(out.computedValues[0].label, null);
+});
+
+test('parseAnswerText: mixed bullet styles "* X" and "• X" both match', () => {
+  const out = parseAnswerText('* 1.5e-3 V\n• 2.5 A');
+  assert.equal(out.computedValues.length, 2);
+  assert.equal(out.computedValues[0].confidence, 'medium');
+  assert.equal(out.computedValues[1].confidence, 'medium');
+});
+
+test('parseAnswerText: numbered list with Unicode superscript exponent in value', () => {
+  const out = parseAnswerText('1. 1.0000×10⁻⁶ H\n2. 0.0352 H');
+  assert.equal(out.computedValues[0].value, '1.0000e-6');
+});
