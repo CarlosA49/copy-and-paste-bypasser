@@ -306,3 +306,97 @@ test('parseAnswerText: medium-confidence numeric answer (list) ALSO suppresses u
   const out = parseAnswerText('1. 1.0e-6 H\n2. 0.0352 H');
   assert.deepEqual(out.letters, []);
 });
+
+test('regression: clean numbered list from AI', () => {
+  const out = parseAnswerText('1. 1.0000e-6 H\n2. 0.0352 H');
+  assert.equal(out.computedValues.length, 2);
+  assert.equal(out.computedValues[0].raw, '1.0000e-6 H');
+  assert.equal(out.computedValues[1].raw, '0.0352 H');
+});
+
+test('regression: bullets with × notation get normalised', () => {
+  const out = parseAnswerText('- 1.0000×10^-6 H\n- 0.0352 H');
+  assert.equal(out.computedValues.length, 2);
+  assert.equal(out.computedValues[0].raw, '1.0000e-6 H');
+  assert.equal(out.computedValues[1].raw, '0.0352 H');
+});
+
+test('regression: inline prose with two answers', () => {
+  const out = parseAnswerText(
+    'The answer to question 1 is 1.0000×10^-6 H. For question 2, use 0.0352 H.'
+  );
+  assert.equal(out.computedValues.length, 2);
+  // Both labeled, high confidence.
+  assert.equal(out.computedValues[0].label, '1');
+  assert.equal(out.computedValues[0].raw, '1.0000e-6 H');
+  assert.equal(out.computedValues[1].label, '2');
+  assert.equal(out.computedValues[1].raw, '0.0352 H');
+  assert.ok(out.computedValues.every(function (cv) { return cv.confidence === 'high'; }));
+});
+
+test('regression: split scientific notation across three lines', () => {
+  // Exactly the user's reported shape.
+  const out = parseAnswerText('1.0000×10\n−6\nH');
+  assert.equal(out.computedValues.length, 1);
+  assert.equal(out.computedValues[0].raw, '1.0000e-6 H');
+});
+
+test('regression: Q1/Answer N/#N labels in one paste', () => {
+  const out = parseAnswerText(
+    'Q1: 1.0000×10^-6 H\n' +
+    'Answer 2 = 0.0352 H\n' +
+    'For #3, the result is 6.0781×10^-10 F.'
+  );
+  assert.equal(out.computedValues.length, 3);
+  assert.equal(out.computedValues[0].label, '1');
+  assert.equal(out.computedValues[0].raw, '1.0000e-6 H');
+  assert.equal(out.computedValues[1].label, '2');
+  assert.equal(out.computedValues[1].raw, '0.0352 H');
+  assert.equal(out.computedValues[2].label, '3');
+  assert.equal(out.computedValues[2].raw, '6.0781e-10 F');
+});
+
+test('regression: Unicode-superscript-only form (10⁻⁶ with no ×)', () => {
+  const out = parseAnswerText('The result is 10⁻⁶ F.');
+  // Single value extracted: "1e-6 F" via the labeled-answer "result is" path,
+  // OR via the inline path if labeled didn't catch — either way confidence is reasonable.
+  assert.equal(out.computedValues.length, 1);
+  assert.equal(out.computedValues[0].raw, '1e-6 F');
+});
+
+test('regression: text contains both letter A and computed value with unit A — unit-letter suppressed', () => {
+  // "A" should not be treated as MC candidate when there's a confident numeric
+  // answer that ends in unit A.
+  const out = parseAnswerText('Q1: 0.5 A');
+  assert.deepEqual(out.letters, []);
+  assert.equal(out.computedValues[0].unit, 'A');
+});
+
+test('regression: derivation paragraph keeps only the final value (inline last-equals)', () => {
+  const out = parseAnswerText('Solve: I = V/R = 5/10 = 0.5 A. Done.');
+  assert.equal(out.computedValues.length, 1);
+  assert.equal(out.computedValues[0].raw, '0.5 A');
+  assert.equal(out.computedValues[0].confidence, 'low');
+});
+
+test('regression: mixed forms in one paste (×, *, e-notation, capital E)', () => {
+  const out = parseAnswerText('Q1: 1.0×10^-6 H\nQ2: 2.0*10^-3 V\nQ3: 3.0E-9 F');
+  assert.equal(out.computedValues.length, 3);
+  assert.equal(out.computedValues[0].raw, '1.0e-6 H');
+  assert.equal(out.computedValues[1].raw, '2.0e-3 V');
+  assert.equal(out.computedValues[2].raw, '3.0e-9 F');
+});
+
+test('regression: complex unit μH preserved through pipeline', () => {
+  const out = parseAnswerText('Final answer: 57 μH');
+  assert.equal(out.computedValues.length, 1);
+  assert.equal(out.computedValues[0].unit, 'μH');
+  assert.equal(out.computedValues[0].raw, '57 μH');
+});
+
+test('regression: MC letter answer alone still works (no numeric answer)', () => {
+  const out = parseAnswerText('The correct answer is C.');
+  // C is a unit code, but there's no confident numeric answer → not suppressed.
+  assert.deepEqual(out.letters, ['C']);
+  assert.equal(out.computedValues.length, 0);
+});
