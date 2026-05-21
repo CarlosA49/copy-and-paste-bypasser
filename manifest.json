@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Clipboard Cleaner",
+  "version": "1.0.0",
+  "description": "Strips injected copyright/warning lines from copied text on Coursera and similar sites.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.coursera.org/*",
+        "https://coursera.org/*"
+      ],
+      "js": ["lib/cleaner.js", "content.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ]
+}
