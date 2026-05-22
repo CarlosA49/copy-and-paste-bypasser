@@ -57,10 +57,25 @@
     try { a.sidebar.mount(); } catch (_) { /* don't crash the page on UI error */ }
   }
 
+  function startLectureCompanion() {
+    const a = api();
+    if (!a || !a.lectureCompanion || typeof a.lectureCompanion.createCompanion !== 'function') return;
+    if (!a.sidebar || typeof a.sidebar.setLectureDraft !== 'function') return;
+    const companion = a.lectureCompanion.createCompanion({
+      document: document,
+      onDraft: function (text) {
+        try { a.sidebar.setLectureDraft(text); } catch (_) { /* ignore UI error */ }
+      },
+    });
+    companion.init();
+  }
+
   document.addEventListener('copy', onCopy, true);
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', mountSidebarWhenReady, { once: true });
+    document.addEventListener('DOMContentLoaded', startLectureCompanion, { once: true });
   } else {
     mountSidebarWhenReady();
+    startLectureCompanion();
   }
 })();
