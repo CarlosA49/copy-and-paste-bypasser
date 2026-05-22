@@ -242,3 +242,62 @@ test('count mismatch falls through to legacy (parsedAnswers stays 0)', () => {
   const out = applyAnswers('a\nb\nc', d.body, { verbose: false });
   assert.equal(out.parsedAnswers, 0);
 });
+
+test('7-question "Final answers:" block with mixed text/radio/scientific is fully filled', () => {
+  // Q3 ("the capacitor") and Q5 ("increase the frequency") are single-choice
+  // radio groups in this mock — the spec says these should select their
+  // matching option, not become a text fill.
+  const html =
+    makeQuestion(1, '<input type="text" id="q1">') +
+    makeQuestion(2, '<input type="text" id="q2">') +
+    makeQuestion(3,
+      '<fieldset>' +
+        '<label><input type="radio" name="q3"> the inductor</label>' +
+        '<label><input type="radio" name="q3"> the capacitor</label>' +
+        '<label><input type="radio" name="q3"> the resistor</label>' +
+      '</fieldset>') +
+    makeQuestion(4, '<input type="text" id="q4">') +
+    makeQuestion(5,
+      '<fieldset>' +
+        '<label><input type="radio" name="q5"> decrease the frequency</label>' +
+        '<label><input type="radio" name="q5"> keep the frequency</label>' +
+        '<label><input type="radio" name="q5"> increase the frequency</label>' +
+      '</fieldset>') +
+    makeQuestion(6, '<input type="text" id="q6">') +
+    makeQuestion(7, '<input type="text" id="q7">');
+  const d = dom(html);
+  const raw =
+    'Final answers:\n\n' +
+    '1. 9795.3096 Hz\n' +
+    '2. 0 A\n' +
+    '3. the capacitor\n' +
+    '4. 0.0006665 A\n' +
+    '5. increase the frequency\n' +
+    '6. 3.7699×10^-8 C\n' +
+    '7. 5.6250×10^-6 C/m²';
+
+  const out = applyAnswers(raw, d.body, { verbose: false });
+
+  assert.equal(out.detectedQuestions, 7);
+  assert.equal(out.parsedAnswers, 7);
+  assert.equal(out.summary.filled, 7);
+  assert.equal(out.summary.failed, 0);
+
+  // Numeric / math_input fields:
+  assert.equal(d.getElementById('q1').value, '9795.3096');
+  assert.equal(d.getElementById('q2').value, '0');
+  assert.equal(d.getElementById('q4').value, '0.0006665');
+  assert.equal(d.getElementById('q6').value, '3.7699E-8', 'Q6 must be E notation');
+  assert.equal(d.getElementById('q7').value, '5.6250E-6', 'Q7 must be E notation');
+
+  // Radio selections:
+  const q3 = d.querySelectorAll('input[name="q3"]');
+  assert.equal(q3[0].checked, false);
+  assert.equal(q3[1].checked, true, 'Q3 "the capacitor" must be selected');
+  assert.equal(q3[2].checked, false);
+
+  const q5 = d.querySelectorAll('input[name="q5"]');
+  assert.equal(q5[0].checked, false);
+  assert.equal(q5[1].checked, false);
+  assert.equal(q5[2].checked, true, 'Q5 "increase the frequency" must be selected');
+});
