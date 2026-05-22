@@ -192,3 +192,27 @@ test('exports RUN_KEY, COURSE_LOG_KEY, HEARTBEAT_TTL_MS', () => {
   assert.equal(typeof COURSE_LOG_KEY, 'string');
   assert.equal(typeof HEARTBEAT_TTL_MS, 'number');
 });
+
+test('load shallow-merges newer default fields into older saved state', async () => {
+  const fake = fakeStorage();
+  // Simulate an older stored blob that's missing several fields added later
+  // (no replyHistory, no ownerTabKey, no heartbeatAt, partial settings).
+  fake._store[RUN_KEY] = {
+    status: 'running',
+    cursor: 4,
+    queue: [{ id: 'x' }],
+    settings: { pauseOnUserInput: false }, // missing autoSubmitQuizzes
+  };
+  const s = createState(fake);
+  const got = await awaitCb(s.load);
+  // Stored values preserved.
+  assert.equal(got.status, 'running');
+  assert.equal(got.cursor, 4);
+  assert.equal(got.queue.length, 1);
+  assert.equal(got.settings.pauseOnUserInput, false);
+  // Missing fields filled from defaults.
+  assert.deepEqual(got.replyHistory, []);
+  assert.equal(got.ownerTabKey, null);
+  assert.equal(got.heartbeatAt, 0);
+  assert.equal(got.settings.autoSubmitQuizzes, false, 'settings deep-merge fills missing leaves');
+});
