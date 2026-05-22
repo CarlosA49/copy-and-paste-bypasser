@@ -57,9 +57,9 @@ test('11-question failure case is fully filled', () => {
   assert.equal(d.getElementById('q4').value, '-2*k');
   assert.equal(d.getElementById('q5').value, '0');
   assert.equal(d.getElementById('q6').value, '15058.7876');
-  assert.equal(d.getElementById('q7').value, '3.7647*10^5');
+  assert.equal(d.getElementById('q7').value, '3.7647E5');
   assert.equal(d.getElementById('q8').value, '8.0000');
-  assert.equal(d.getElementById('q9').value, '3.9789*10^-5');
+  assert.equal(d.getElementById('q9').value, '3.9789E-5');
   assert.equal(d.getElementById('q11').value, '300');
 
   const radios = d.querySelectorAll('input[name="q10"]');
@@ -165,9 +165,9 @@ test('11-question bare un-numbered format is fully filled', () => {
   assert.equal(out.summary.failed, 0);
   assert.equal(out.mode, 'ordered-lines');
 
-  assert.equal(d.getElementById('q7').value, '3.7647*10^5', 'Q7 decimal must not be mis-parsed as numbered list item');
+  assert.equal(d.getElementById('q7').value, '3.7647E5', 'Q7 decimal must not be mis-parsed as numbered list item');
   assert.equal(d.getElementById('q8').value, '8.0000', 'Q8 must not be corrupted to 00000');
-  assert.equal(d.getElementById('q9').value, '3.9789*10^-5');
+  assert.equal(d.getElementById('q9').value, '3.9789E-5');
   assert.equal(d.getElementById('q11').value, '300');
 
   const radios = d.querySelectorAll('input[name="q10"]');
@@ -217,7 +217,7 @@ test('11-question "Final answers:" header + "Based on..." trailer is fully fille
   assert.equal(out.mode, 'ordered-lines');
 
   assert.equal(d.getElementById('q8').value, '8.0000');
-  assert.equal(d.getElementById('q9').value, '3.9789*10^-5');
+  assert.equal(d.getElementById('q9').value, '3.9789E-5');
   assert.equal(d.querySelectorAll('input[name="q10"]')[1].checked, true);
   assert.equal(d.getElementById('q11').value, '300');
 });
