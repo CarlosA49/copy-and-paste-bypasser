@@ -54,7 +54,8 @@ Content-script-only. No background service worker. State persists in `chrome.sto
 
 ### Modified files
 
-- `lib/sidebar.js` — new "Autopilot" tab (`data-tab="autopilot"`). Layout in Section "Sidebar UI" below. Expose `setAutopilotStatus(text, meta)`, `appendAutopilotLog(entry)`, `setAutopilotPaused(bool)`.
+- `lib/sidebar.js` — new "Autopilot" tab (`data-tab="autopilot"`). Layout in Section "Sidebar UI" below. Expose `setAutopilotStatus(text, meta)`, `appendAutopilotLog(entry)`, `setAutopilotPaused(bool)`, **`getAnswerText()`** (thin read of the existing "Answering for you" textarea — used by the quiz fallback handler).
+- `lib/cleaner.js` — one-line addition: when the cleaner produces a cleaned copy, also stash it on `window.ClipboardCleaner.lastCleanedCopy = cleaned;` so the autopilot's quiz fallback can read it. No behavior change to the existing copy path.
 - `manifest.json` — append the six new lib files in dependency order before `lib/sidebar.js`. Ensure `"permissions": ["storage"]` is present (added by the peer-review-pregrader plan; double-check).
 - `content.js` — on `DOMContentLoaded` call `ClipboardCleaner.moduleAutopilot.bootIfRunning()` alongside the existing sidebar mount and lecture-companion init.
 
@@ -63,15 +64,25 @@ Content-script-only. No background service worker. State persists in `chrome.sto
 ### Video handler
 
 1. Find `<video>` via `transcript-scraper.findVideoElement(doc)`.
-2. Read `video.duration`. If unknown or `< 180 s`: skip the seek trick, just play and listen for `ended`.
-3. `video.play()`.
-4. Wait `randInt(60, 300) * 1000` ms — the 1–5 minute "watching" window.
-5. `video.currentTime = video.duration - randInt(60, 120)` — seek to 1–2 minutes before the end.
-6. Let it play. Listen for `ended` event (or for Coursera's per-item completion check to flip on).
-7. After `ended`: wait `randInt(10, 20) * 1000` ms post-watch dwell.
-8. Resolve with `{ outcome: 'video-done' }`.
+2. Read `video.duration`. If unknown / `NaN` / `< 180 s`: skip the seek trick, just play and listen for `ended`, then post-end dwell, resolve.
+3. **Choose seek target first:** `targetTime = duration - randInt(60, 120)`. (So `targetTime` is `duration - 120 .. duration - 60`.)
+4. **Cap pre-skip dwell to fit:** the pre-skip wait must be strictly less than `targetTime - 10 s` (10 s buffer so the wait doesn't accidentally pass the seek point). Compute:
+   ```
+   maxPreSkip = Math.floor(targetTime - 10)        // seconds
+   if maxPreSkip < 60:
+       // Video too short to do the dwell-then-seek convincingly.
+       // Play through normally, listen for `ended`, post-end dwell, resolve.
+       fallback to step 2's behavior
+   preSkip = randInt(60, Math.min(300, maxPreSkip))
+   ```
+5. `video.play()`.
+6. Wait `preSkip * 1000` ms.
+7. `video.currentTime = targetTime`.
+8. Let it play. Listen for `ended` event (or for Coursera's per-item completion check to flip on).
+9. After `ended`: wait `randInt(10, 20) * 1000` ms post-end dwell.
+10. Resolve with `{ outcome: 'video-done' }`.
 
-If at any point user-input pause fires, halt the timers and surface Resume.
+If at any point a pause trigger fires, halt the timers and surface Resume.
 
 ### Reading handler
 
@@ -92,10 +103,25 @@ If at any point user-input pause fires, halt the timers and surface Resume.
 ### Quiz / peer-review / programming handler (fallback)
 
 1. Open the item.
-2. If the system clipboard contains text, run `answer-applier.apply(...)` (existing engine).
-3. Watch for 5 s: did any option get selected or text input get filled?
-4. **Success** → wait `randInt(120, 180) * 1000` ms (dwell), then if **`autoSubmitQuizzes`** setting is ON, click the page's Submit button; else pause+prompt: "Filled — review and submit yourself, then Resume."
-5. **Failure** → pause autopilot, switch sidebar to this item, status: "Quiz needs you — handle it and click Resume."
+2. **Source the answer text** in this order (do NOT read `navigator.clipboard` silently — content-scripts can't reliably do that without a user gesture, and silent clipboard reads are a privacy smell):
+   a. `state.lastAnswerText` if set (last text the user pasted into the sidebar's "Answering for you" textarea).
+   b. The last value of `window.ClipboardCleaner.lastCleanedCopy` if the cleaner module already stashed one this session.
+   c. If neither is available → pause autopilot, switch sidebar to this item, status: "Quiz needs you — paste an answer in the 'Answering for you' tab and click Resume."
+3. With source text in hand, call the existing engine:
+   ```js
+   const summary = window.ClipboardCleaner.answerApplier.applyAnswers(
+     raw,
+     document.body,
+     { /* options — defaults match the sidebar's own Apply path */ }
+   );
+   ```
+4. Watch for 5 s via MutationObserver on `document.body` (subtree, `attributes: true` for checked/value changes, `childList` for new validation banners): did any option get selected or text input get filled? Cross-reference `summary.selected + summary.filled > 0`.
+5. **Success** → wait `randInt(120, 180) * 1000` ms (dwell). Then:
+   - If `state.settings.autoSubmitQuizzes === true`: find the page's Submit button (selector list with fallbacks — `[data-testid="submit"]`, `button[type="submit"]`, button text matching `/^(submit|finish)/i`) and click it.
+   - Else: pause+prompt "Filled — review and submit yourself, then Resume."
+6. **Failure** → pause autopilot, switch sidebar to this item, status: "Quiz needs you — handle it and click Resume."
+
+**Note on the answer text plumbing:** `lib/sidebar.js` already exposes the textarea value of its "Answering for you" tab via the existing wire-up. We add `getAnswerText()` to the sidebar's public API as a thin read of that textarea, and `cleaner.js` sets `window.ClipboardCleaner.lastCleanedCopy` when it cleans a copy (1-line addition). Both are minimal touches to existing files.
 
 ### Unknown / `other` kind
 
@@ -110,19 +136,19 @@ const REPLIES = [
   "This actually clicked for me on the second read. The piece about how the framing shifts depending on context is the part I'm still chewing on.",
   "Useful prompt. I'd push back gently on the implied either/or — most of the real cases I've seen sit in the messy middle.",
   "Quick reaction: the bit on tradeoffs felt right. The part about long-term costs is where I want more evidence.",
-  "Reading this back, I think the key idea is doing more work than it first appears. The example load-bears most of the argument.",
+  "The example is carrying more of the argument than I noticed at first. That was the part that made the main point click for me.",
   "Honestly the angle here surprised me. I went in expecting one conclusion and ended up somewhere else by the end.",
   "Solid. Worth pausing on the assumption baked into step two — that's where I think the disagreements in the class will land.",
   "Two things stuck. First, the definition is sharper than I remembered. Second, the boundary cases matter more than the central ones.",
-  "I like this. The framing avoids the usual hedge and just commits to a position, which is harder than it looks.",
-  "Counter-take: the example feels a bit too clean for the conclusion it's supporting. Would be curious to see the noisier version.",
+  "I like this. It takes a clearer position than I expected, and that makes the tradeoffs easier to see.",
+  "I'm not fully sold on the example. It feels cleaner than the situation the conclusion is trying to explain.",
   "Reads true. The part I had to slow down on was the move from observation to recommendation — that step is doing a lot of work.",
   "Nice writeup. I keep coming back to the question of who bears the cost when this is applied at scale — feels underexplored.",
   "Half-agree. The descriptive part is sharp; the prescriptive part loses me when it stops engaging with the obvious alternative.",
   "First take: the framework is useful as a sorting tool, less so as a decision tool. Different jobs.",
   "What I'm taking away: the second-order effects are doing more work in the argument than the first-order ones. That's the part to interrogate.",
   "Worth restating in your own words — when I tried, I noticed the steps don't quite connect the way I assumed on first read.",
-  "The piece on edge cases is where this earns its keep for me. Strip those out and the rest is fairly conventional.",
+  "The edge cases are the strongest part for me. Without them, the main point would feel more conventional.",
   "Reasonable. I'd want to see this stress-tested against the case in week two — the one where the usual heuristic breaks.",
   "Tagging this as one to revisit. The argument is tighter than my initial reaction gave it credit for.",
   "Side note: the terminology overlap with the previous module made this harder to read on the first pass than it needed to be.",
@@ -180,28 +206,74 @@ Separate storage key `ccp_autopilot_course_log` (per-course completion record):
 { [courseId]: { [itemId]: { kind, at, outcome } } }
 ```
 
+### Ownership semantics (multi-tab safety)
+
+Every tab generates a per-tab `ownerTabKey` on script load — a random string (e.g. `crypto.randomUUID()` or `Math.random().toString(36).slice(2) + Date.now()`). This identifier lives in tab-local memory only; it is never stored across reloads. A new reload yields a new key.
+
+A tab is considered the **owner** of an in-flight run when shared `state.ownerTabKey === thisTabKey` AND `state.heartbeatAt` is fresh (`Date.now() - state.heartbeatAt <= 30000`).
+
+**Owner-acquire procedure** (used by `bootIfRunning()` and `resume()`):
+
+```
+acquireOwnership(state):
+  if state.ownerTabKey === thisTabKey AND fresh(state.heartbeatAt):
+    return 'owner'                           // already mine
+  if state.ownerTabKey AND fresh(state.heartbeatAt):
+    return 'foreign-active'                  // another tab owns it; do nothing
+  // Stale or unowned — claim it.
+  write { ownerTabKey: thisTabKey, heartbeatAt: Date.now() } merged into state
+  re-read state
+  if state.ownerTabKey === thisTabKey: return 'owner'
+  else: return 'foreign-active'              // lost a race; back off
+```
+
+**Heartbeat:** The owner refreshes `heartbeatAt` every 5 s while a run is active (`setInterval` cleared on pause/stop/destroy). A foreign tab observing a > 30 s stale heartbeat may claim ownership via the procedure above.
+
+**Non-owner tabs MUST NOT mutate `status`, `cursor`, `queue`, or `replyHistory`.** They show a passive local banner ("Another tab is running the autopilot for this course") and otherwise leave shared state alone.
+
 ### Boot behavior (`bootIfRunning()` on every page load)
 
 1. Read state. If `status !== 'running'`, return.
-2. Extract `courseId` from URL (`/learn/<slug>/`).
-3. If `state.courseId !== currentCourseId` → status = 'paused'. Sidebar banner: "Different course detected — Resume to continue the previous module."
-4. Extract `currentItemId` from URL.
-5. If `currentItemId === state.queue[state.cursor].id` → run the item handler with the remaining dwell budget (if `dwellEndsAt` is in the past, advance immediately).
-6. If `currentItemId` matches a queue entry past the cursor → user manually jumped forward; advance cursor to match and continue.
-7. If `currentItemId` doesn't match any queue entry → status = 'paused', show Resume banner.
-8. On handler resolve: `cursor++`, save state, navigate to `queue[cursor].url` via SPA click (find the matching `<a>` in the module's left sidebar and `.click()` it; do NOT use `location.href`, which would full-reload).
-9. `cursor === queue.length` → status = 'idle', clear run state, log "Module complete".
+2. Extract `currentCourseId` from URL (`/learn/<slug>/`).
+3. If `state.courseId !== currentCourseId` → **show a passive local banner** "Autopilot is running on a different course." Do NOT mutate shared state. Return.
+4. Call `acquireOwnership(state)`. If result is `'foreign-active'` → show passive local banner "Another tab is running this course's autopilot." Return.
+5. Start the 5 s heartbeat refresher.
+6. Extract `currentItemId` from URL.
+7. If `currentItemId === state.queue[state.cursor].id` → run the item handler with the remaining dwell budget (if `dwellEndsAt` is in the past, advance immediately).
+8. If `currentItemId` matches a queue entry past the cursor → user manually jumped forward; advance cursor to match and continue.
+9. If `currentItemId` doesn't match any queue entry → set `status = 'paused'`, stop the heartbeat, release ownership (`ownerTabKey = null`), show local Resume banner.
+10. On handler resolve:
+    a. `cursor++`, save state.
+    b. **If `cursor >= queue.length`** → set `status = 'idle'`, clear run state (queue, cursor, dwellEndsAt, ownerTabKey, heartbeatAt), stop heartbeat, log "Module complete". Return.
+    c. Otherwise → navigate to `queue[cursor].url` via SPA click (find the matching `<a>` in the module's left sidebar and `.click()` it; do NOT use `location.href`, which would full-reload).
+11. On handler failure / pause trigger → set `status = 'paused'`, save state, stop heartbeat, release ownership (`ownerTabKey = null`). Surface Resume banner.
 
 ### Pause triggers
 
 - Stop button (confirmation modal if mid-item).
-- User keyboard/mouse input on the page (default ON; checkbox to disable).
-- Tab hidden for > 60 s (Page Visibility API).
+- **Trusted** user keyboard/mouse input on the page (default ON; checkbox to disable). Filter: `event.isTrusted === true`, and ignore events whose `event.composedPath()[0]` is inside the sidebar shadow root or whose target was generated by the autopilot itself (TypingEngine inserts, autopilot scroll, autopilot clicks). The autopilot tags its own synthetic events with a `data-autopilot-source` attribute on the dispatching element when feasible, and the input listener short-circuits when it can attribute the event to the autopilot.
+- Tab hidden (Page Visibility `hidden`) for > 60 s.
 - Handler failure that prompts user.
 
 ### Resume
 
-Big "Resume" button in the sidebar status panel. Re-enters boot flow step 1.
+The sidebar "Resume" button calls `resume()`:
+
+```
+resume():
+  read state
+  if state.status !== 'paused' OR no queue: no-op
+  if state.courseId !== currentCourseId: show banner "Navigate back to <course> to resume." Return.
+  result = acquireOwnership(state)
+  if result === 'foreign-active': show banner "Another tab owns this run." Return.
+  set state.status = 'running'
+  stamp state.ownerTabKey = thisTabKey, state.heartbeatAt = Date.now()
+  save state
+  start the 5 s heartbeat refresher
+  continue from current cursor (enter boot step 6 with current state)
+```
+
+Note: Boot step 1 still gates on `status === 'running'` because on a fresh page load we should never auto-resume a paused run without an explicit user action. `resume()` is what flips the gate.
 
 ## Sidebar UI (`lib/sidebar.js`)
 
