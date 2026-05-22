@@ -23,6 +23,10 @@
         "lib/value-normalize.js",
         "lib/answer-parser.js",
         "lib/answer-matcher.js",
+        "lib/math-normalize.js",
+        "lib/numbered-parser.js",
+        "lib/question-detector.js",
+        "lib/answer-applier.js",
         "lib/sidebar.js",
         "content.js"
       ],
