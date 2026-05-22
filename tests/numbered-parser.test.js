@@ -182,6 +182,7 @@ test('parseOrderedLines: count mismatch returns []', () => {
 test('parseOrderedLines: missing expectedCount returns [] (no permissive mode)', () => {
   assert.deepEqual(parseOrderedLines('a\nb', undefined), []);
   assert.deepEqual(parseOrderedLines('a\nb', null), []);
+  assert.deepEqual(parseOrderedLines('a\nb', NaN), []);
 });
 
 test('parseOrderedLines: Windows line endings normalised', () => {
