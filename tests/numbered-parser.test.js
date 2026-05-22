@@ -101,3 +101,31 @@ test('skips prose lines around list', () => {
   );
   assert.equal(r.length, 2);
 });
+
+test('strips bold emphasis wrapping an answer value', () => {
+  // "1. **bold answer**" — the closing ** must not leak into rawAnswer
+  const r = parseNumberedAnswers('1. **bold answer**\n2. plain');
+  assert.equal(r[0].rawAnswer, 'bold answer');
+  assert.equal(r[1].rawAnswer, 'plain');
+});
+
+test('strips bold emphasis when answer contains an internal asterisk', () => {
+  // "1. **2*epsilon_o**" — internal * is math, outer ** is emphasis
+  const r = parseNumberedAnswers('1. **2*epsilon_o**\n2. B');
+  assert.equal(r[0].rawAnswer, '2*epsilon_o');
+  assert.equal(r[1].rawAnswer, 'B');
+});
+
+test('single-answer JSON array returns [] (too few answers to trust)', () => {
+  const r = parseNumberedAnswers(JSON.stringify([{ question_id: '1', answer: 'A' }]));
+  assert.deepEqual(r, []);
+});
+
+test('JSON with numeric (non-string) question_id', () => {
+  const r = parseNumberedAnswers(JSON.stringify([
+    { question_id: 1, answer: 'A' },
+    { question_id: 2, answer: 'B' },
+  ]));
+  assert.equal(r.length, 2);
+  assert.equal(r[0].questionNumber, 1);
+});
