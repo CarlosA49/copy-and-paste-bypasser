@@ -165,6 +165,7 @@ test('11-question bare un-numbered format is fully filled', () => {
   assert.equal(out.summary.failed, 0);
   assert.equal(out.mode, 'ordered-lines');
 
+  assert.equal(d.getElementById('q7').value, '3.7647*10^5', 'Q7 decimal must not be mis-parsed as numbered list item');
   assert.equal(d.getElementById('q8').value, '8.0000', 'Q8 must not be corrupted to 00000');
   assert.equal(d.getElementById('q9').value, '3.9789*10^-5');
   assert.equal(d.getElementById('q11').value, '300');
@@ -235,7 +236,9 @@ test('count mismatch falls through to legacy (parsedAnswers stays 0)', () => {
     makeQuestion(1, '<input type="text">') +
     makeQuestion(2, '<input type="text">');
   const d = dom(html);
-  // 3 lines vs 2 questions — should NOT be picked up as ordered-lines.
+  // 'a','b','c' are single chars: layerLineFallback rejects them (length<2 guard),
+  // so parseNumberedAnswers returns []. Then parseOrderedLines sees 3 lines vs
+  // 2 detected questions (count mismatch) and also returns []. parsedAnswers stays 0.
   const out = applyAnswers('a\nb\nc', d.body, { verbose: false });
   assert.equal(out.parsedAnswers, 0);
 });
