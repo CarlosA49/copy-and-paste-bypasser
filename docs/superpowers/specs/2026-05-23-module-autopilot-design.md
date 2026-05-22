@@ -12,12 +12,13 @@ A single "Run autopilot for this module" button in the sidebar that walks the cu
 |---|---|
 | Trigger | Single "Run autopilot" button in the sidebar (no per-type buttons, no auto-trigger). |
 | Discussion behavior | Rotate through a pool of **20** short, human-feeling replies (burstiness + perplexity). Avoid the last 5 used. |
-| Unsupported items (quiz / assignment / peer review) | Try the existing "Answering for you" engine with clipboard contents; pause + prompt if nothing matches in 5s. |
+| Unsupported items (quiz / assignment / peer review) | Try the existing `answerApplier.applyAnswers(raw, document.body, opts)`. Source `raw` in this order: `state.lastAnswerText` (sidebar's "Answering for you" textarea, read via `sidebar.getAnswerText()`) → `window.ClipboardCleaner.lastCleanedCopy` (stashed by `cleaner.js`) → pause + prompt the user to paste an answer. No silent `navigator.clipboard` reads. Watch 5 s after applying; pause + prompt if nothing filled. |
 | Resume logic | Hybrid — prefer Coursera's per-item completion indicators; also keep a local per-course completion log. |
 | Architecture | Content-script autopilot with checkpointed run state in `chrome.storage.local`. No service worker. |
-| Pause on user input | Default **ON** (checkbox to disable). |
+| Pause on user input | Default **ON** (checkbox to disable). Filter on `event.isTrusted` and exclude sidebar shadow / autopilot-tagged events. |
 | Auto-submit quizzes after autofill | Default **OFF** (checkbox to enable). |
 | Topic-aware discussion replies | Default **OFF**. Possible follow-up. |
+| Natural pacing | **Default and only behavior — not a toggle.** Jittered scrolling, randomized per-item dwells, inter-item gaps, reply-pool cooldown, and pause-on-user-input are intrinsic to the autopilot. A "fast mode" would defeat the autopilot's purpose, so no setting is exposed. Tests assert the timing helpers stay within their declared ranges. |
 
 ## Architecture
 
@@ -164,7 +165,7 @@ All ranges are constants at the top of the file. Tests use a seeded LCG RNG (sam
 
 | Phase | Range | Notes |
 |---|---|---|
-| Video pre-skip dwell | 60–300 s | Skipped if `duration < 180 s` |
+| Video pre-skip dwell | 60–300 s, capped to `min(300, targetTime − 10)` s | The seek `targetTime` is chosen first (`duration − randInt(60, 120)`); the pre-skip wait is bounded below that minus a 10 s buffer so the wait can't overshoot the seek. If `duration < 180 s` OR the cap drops the upper bound below 60 s ⇒ play through normally (no seek), listen for `ended`, post-end dwell, resolve. |
 | Video skip target | `duration − randInt(60, 120)` | 1–2 min before end |
 | Video post-end dwell | 10–20 s | |
 | Reading dwell | 120–180 s | Includes jittered scroll |
@@ -316,8 +317,8 @@ New tab `data-tab="autopilot"`, panel layout:
 | Reading has no Mark-complete button | Dwell completes, log `✓ Reading (auto)`. |
 | Discussion submit fails | Retry once after 5s. Second failure → pause + prompt. |
 | User navigates away mid-item | State persists; sidebar shows Resume on returning to the course. |
-| Two autopilot tabs of the same course | The boot guard pauses the second tab (it reads `status: 'running'` but realizes another tab is already driving via a heartbeat timestamp in state; > 30s stale heartbeat ⇒ takeover). |
-| Two course tabs (different courses) | Cross-course guard pauses the non-matching tab. |
+| Two autopilot tabs of the same course | The non-owner tab shows a passive local banner ("Another tab is running this course's autopilot") and does NOT mutate shared run state (no writes to `status`, `cursor`, `queue`, `replyHistory`). Only if the owner's `heartbeatAt` goes stale (> 30 s with no refresh) may a foreign tab claim ownership via the `acquireOwnership` procedure and take over from the saved cursor. |
+| Two course tabs (different courses) | The non-matching tab shows a passive local banner ("Autopilot is running on a different course") and does NOT mutate shared run state. The owning tab keeps running uninterrupted. |
 | Coursera DOM changes mid-run | Tolerant scraper fallbacks. If queue scrape fails entirely → pause + diagnostic log. |
 | Tab loses focus briefly | Fine. Rely on `ended` event, not wall-clock. |
 | Tab hidden (Page Visibility `hidden`) > 60 s | Pause autopilot, save state. Resume requires Resume click — don't auto-resume on visibility change. |
