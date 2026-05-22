@@ -122,3 +122,19 @@ test('generateDraft returns empty string for no cues', () => {
   const draft = generateDraft({ cues: [], lectureTitle: 'L', weekObjective: null, random: seededRng(1) });
   assert.equal(draft, '');
 });
+
+test('generateDraft applies perplexity swap when synonym keys appear in cues', () => {
+  const cues = [
+    { text: 'This idea is important for understanding the algorithm.' },
+    { text: 'It is also useful when problems get complex.' },
+  ];
+  const REPLACEMENTS = ['load-bearing', 'worth keeping', 'tangled'];
+  let sawSwap = false;
+  for (let seed = 1; seed <= 50 && !sawSwap; seed++) {
+    const draft = generateDraft({ cues: cues, lectureTitle: null, weekObjective: null, random: seededRng(seed) });
+    if (REPLACEMENTS.some(function (r) { return draft.indexOf(r) !== -1; })) {
+      sawSwap = true;
+    }
+  }
+  assert.ok(sawSwap, 'expected at least one of 50 seeds to trigger a perplexity swap');
+});
