@@ -124,3 +124,118 @@ test('multiple_choice "A, C" ticks the right boxes', () => {
   assert.equal(boxes[1].checked, false);
   assert.equal(boxes[2].checked, true);
 });
+
+test('11-question bare un-numbered format is fully filled', () => {
+  const html =
+    makeQuestion(1, '<input type="text" id="q1">') +
+    makeQuestion(2, '<input type="text" id="q2">') +
+    makeQuestion(3, '<input type="text" id="q3">') +
+    makeQuestion(4, '<input type="text" id="q4">') +
+    makeQuestion(5, '<input type="text" id="q5">') +
+    makeQuestion(6, '<input type="text" id="q6">') +
+    makeQuestion(7, '<input type="text" id="q7">') +
+    makeQuestion(8, '<input type="text" id="q8">') +
+    makeQuestion(9, '<input type="text" id="q9">') +
+    makeQuestion(10,
+      '<fieldset>' +
+        '<label><input type="radio" name="q10"> Paramagnetism</label>' +
+        '<label><input type="radio" name="q10"> Diamagnetism</label>' +
+        '<label><input type="radio" name="q10"> Ferromagnetism</label>' +
+      '</fieldset>') +
+    makeQuestion(11, '<input type="text" id="q11">');
+  const d = dom(html);
+  const raw =
+    '0.0539\n' +
+    '2*epsilon_o*E_o/r\n' +
+    '0\n' +
+    '-2k\n' +
+    '0\n' +
+    '15058.7876 V\n' +
+    '3.7647×10^5 N/C\n' +
+    '8.0000 μC/m²\n' +
+    '3.9789×10^-5 C/m²\n' +
+    'Diamagnetism\n' +
+    '300 m';
+
+  const out = applyAnswers(raw, d.body, { verbose: false });
+
+  assert.equal(out.detectedQuestions, 11);
+  assert.equal(out.parsedAnswers, 11);
+  assert.equal(out.summary.filled, 11);
+  assert.equal(out.summary.failed, 0);
+  assert.equal(out.mode, 'ordered-lines');
+
+  assert.equal(d.getElementById('q8').value, '8.0000', 'Q8 must not be corrupted to 00000');
+  assert.equal(d.getElementById('q9').value, '3.9789*10^-5');
+  assert.equal(d.getElementById('q11').value, '300');
+
+  const radios = d.querySelectorAll('input[name="q10"]');
+  assert.equal(radios[1].checked, true, 'Q10 Diamagnetism must be selected');
+});
+
+test('11-question "Final answers:" header + "Based on..." trailer is fully filled', () => {
+  const html =
+    makeQuestion(1, '<input type="text" id="q1">') +
+    makeQuestion(2, '<input type="text" id="q2">') +
+    makeQuestion(3, '<input type="text" id="q3">') +
+    makeQuestion(4, '<input type="text" id="q4">') +
+    makeQuestion(5, '<input type="text" id="q5">') +
+    makeQuestion(6, '<input type="text" id="q6">') +
+    makeQuestion(7, '<input type="text" id="q7">') +
+    makeQuestion(8, '<input type="text" id="q8">') +
+    makeQuestion(9, '<input type="text" id="q9">') +
+    makeQuestion(10,
+      '<fieldset>' +
+        '<label><input type="radio" name="q10"> Paramagnetism</label>' +
+        '<label><input type="radio" name="q10"> Diamagnetism</label>' +
+        '<label><input type="radio" name="q10"> Ferromagnetism</label>' +
+      '</fieldset>') +
+    makeQuestion(11, '<input type="text" id="q11">');
+  const d = dom(html);
+  const raw =
+    'Final answers:\n\n' +
+    '0.0539\n' +
+    '2*epsilon_o*E_o/r\n' +
+    '0\n' +
+    '-2k\n' +
+    '0\n' +
+    '15058.7876 V\n' +
+    '3.7647×10^5 N/C\n' +
+    '8.0000 μC/m²\n' +
+    '3.9789×10^-5 C/m²\n' +
+    'Diamagnetism\n' +
+    '300 m\n\n' +
+    'Based on the uploaded question set.';
+
+  const out = applyAnswers(raw, d.body, { verbose: false });
+
+  assert.equal(out.detectedQuestions, 11);
+  assert.equal(out.parsedAnswers, 11);
+  assert.equal(out.summary.filled, 11);
+  assert.equal(out.summary.failed, 0);
+  assert.equal(out.mode, 'ordered-lines');
+
+  assert.equal(d.getElementById('q8').value, '8.0000');
+  assert.equal(d.getElementById('q9').value, '3.9789*10^-5');
+  assert.equal(d.querySelectorAll('input[name="q10"]')[1].checked, true);
+  assert.equal(d.getElementById('q11').value, '300');
+});
+
+test('numbered format still reports mode=numbered (regression guard)', () => {
+  const html =
+    makeQuestion(1, '<input type="text" id="q1">') +
+    makeQuestion(2, '<input type="text" id="q2">');
+  const d = dom(html);
+  const out = applyAnswers('1. a\n2. b', d.body, { verbose: false });
+  assert.equal(out.mode, 'numbered');
+});
+
+test('count mismatch falls through to legacy (parsedAnswers stays 0)', () => {
+  const html =
+    makeQuestion(1, '<input type="text">') +
+    makeQuestion(2, '<input type="text">');
+  const d = dom(html);
+  // 3 lines vs 2 questions — should NOT be picked up as ordered-lines.
+  const out = applyAnswers('a\nb\nc', d.body, { verbose: false });
+  assert.equal(out.parsedAnswers, 0);
+});
