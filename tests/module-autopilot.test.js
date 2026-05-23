@@ -659,6 +659,33 @@ test('bootIfRunning: foreign-active fires ONLY when stored ownerTabKey differs f
   assert.ok(/another tab/i.test(banner), 'banner mentions another tab');
 });
 
+const pageFallbackMod = require('../lib/page-fallback.js');
+
+test('single-page fallback: scrape returns empty → synthetic queue runs current-page handler → clicks Go to next item', async () => {
+  const html =
+    '<div><h1>Syllabus</h1></div>' +
+    '<button id="next-btn">Go to next item</button>';
+  const j = makePage(html, 'https://www.coursera.org/learn/x/supplement/r1/syllabus');
+  const storage = fakeStorage();
+  const handlers = mkFakeHandlers();
+  let nextClicked = false;
+  j.window.document.getElementById('next-btn').addEventListener('click', function () { nextClicked = true; });
+  const confirmer = { waitForCompletion: function () { return Promise.resolve(true); } };
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    confirmer: confirmer,
+    nowFn: function () { return 1_000_000; }, tabKey: 'tab-1', rng: seededRng(1),
+    sessionStorage: fakeSessionStorage(),
+    navigate: function () { return Promise.resolve(); },
+    sidebar: { setAutopilotStatus: function () {}, appendAutopilotLog: function () {}, setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; } },
+    pageFallback: pageFallbackMod,
+  });
+  await ap.start();
+  assert.equal(handlers.calls.length, 1, 'reading handler should run on current page');
+  assert.equal(handlers.calls[0].kind, 'reading', 'kind should be reading (URL is /supplement/)');
+  assert.equal(nextClicked, true, 'Go to next item button should have been clicked');
+});
+
 test('takeOver(): force-claims ownership from a foreign-fresh tab and runs', async () => {
   const j = makePage(MODULE_HTML, 'https://www.coursera.org/learn/x/lecture/v1/intro');
   const storage = fakeStorage();
