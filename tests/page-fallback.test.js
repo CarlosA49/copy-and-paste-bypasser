@@ -80,3 +80,37 @@ test('findAgreementCheckbox: falls back to checkbox whose label mentions "agree"
 test('findAgreementCheckbox: returns null when no agreement-style checkbox exists', () => {
   assert.equal(pageFallback.findAgreementCheckbox(dom('<input type="text">')), null);
 });
+
+test('findCompletedReadingIndicator: matches h3 with aria-label "Reading completed"', () => {
+  const d = dom('<main><h3 aria-label="Reading completed">Completed</h3></main>');
+  const el = pageFallback.findCompletedReadingIndicator(d);
+  assert.ok(el, 'should find the indicator');
+});
+
+test('findCompletedReadingIndicator: matches any element with aria-label /reading completed/i', () => {
+  const d = dom('<main><div aria-label="reading COMPLETED"></div></main>');
+  assert.ok(pageFallback.findCompletedReadingIndicator(d));
+});
+
+test('findCompletedReadingIndicator: matches an h2 with aria-label="Completed"', () => {
+  const d = dom('<main><h2 aria-label="Completed">Completed</h2></main>');
+  assert.ok(pageFallback.findCompletedReadingIndicator(d));
+});
+
+test('findCompletedReadingIndicator: returns null when only an unrelated "Completed" text node exists', () => {
+  const d = dom('<main><p>You have not yet Completed this section.</p></main>');
+  assert.equal(pageFallback.findCompletedReadingIndicator(d), null);
+});
+
+test('findCompletedReadingIndicator: returns null when no completion indicators are present', () => {
+  const d = dom('<main><h1>Syllabus</h1></main>');
+  assert.equal(pageFallback.findCompletedReadingIndicator(d), null);
+});
+
+test('findGoToNextItemButton: matches when text is inside span.cds-button-label', () => {
+  // Regression test — confirms the Coursera reading page Go-to-next button works.
+  const d = dom('<button class="cds-button-primary"><span class="cds-button-label">Go to next item</span></button>');
+  const btn = pageFallback.findGoToNextItemButton(d);
+  assert.ok(btn);
+  assert.equal(btn.tagName, 'BUTTON');
+});
