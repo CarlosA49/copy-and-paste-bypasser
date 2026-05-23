@@ -2078,3 +2078,73 @@ git push origin feat/module-autopilot
 - `Item` shape (`id`, `title`, `kind`, `url`, `completed`, `syntheticSinglePage?`) — Tasks 4, 9. ✓
 - `assignment-agreement-accepted-paused` outcome string — Task 11 export + Task 11 isFailureOutcome wiring. ✓
 - `KIND_BY_SEGMENT.gradedLti = 'assignment'` — Task 11. Handler routes via `handlerForKind`. ✓
+
+---
+
+## Change Summary
+
+**New scraper fallback strategy (3 layers):**
+1. Layer 1: Existing stable selectors (`[data-testid="lesson-collection"]`, `[data-testid="course-content-drawer"]`, etc.) — unchanged.
+2. Layer 2: Coursera Design System accordion — `findAccordionHeaders` matches `button[class*="AccordionHeader" i]` OR any button whose visible text matches `/(Module|Week|Lesson|Unit) \d+/i`. `pairHeaderWithPanel` resolves the panel via `aria-controls` (or the header's own next sibling, or any following ancestor sibling) containing `/learn/` anchors. `extractItemsFromPanel` parses each anchor row via `parseRowText` (universal row-text splitter that handles concatenated DOM text like `Lesson 2: Matrices and OperatorsReading. Duration: 10 minutes10 min` → `{ title, kind, meta }`). Section selection priority: current URL's item id → `aria-expanded="true"` → first non-empty.
+3. Layer 3: Pure text-pattern — `moduleHeaderElements` walks all DOM nodes (≤120 char text, no child also matching) for module/week/lesson headers; anchors are bucketed by document position relative to the nearest preceding header. No class/testid dependency at all.
+
+**New video seek strategy:**
+- Try `video.currentTime = targetTimeSec` first; verify the write stuck (`Math.abs(v.currentTime - targetTimeSec) < 5`).
+- If not stuck (DRM/encrypted streams), find `button[aria-label*="Seek Video Forward" i]` and click `ceil((endTarget - current) / 10)` times (capped at 200) where `endTarget = max(targetTimeSec, duration - 10)` — drives close enough to natural end that the `ended` event fires within ~10s of real playback instead of waiting ~60s.
+
+**Mark as completed detection:**
+- `pageFallback.findMarkCompleteButton(root)` matches button/role=button text `Mark as completed` / `Mark complete` / `Complete` / `Completed`. Also matches `.cds-button-label` (or `[class*="button-label" i]`) and walks `closest('button, [role="button"]')` to return the actual clickable parent — handles the real Coursera markup where the visible label is nested inside `<button>`.
+- The autopilot's confirmer-timeout fallback chain now tries `pageFallback.findMarkCompleteButton` BEFORE the existing `tryMarkCompleteFallback` (which only matched `button[aria-label*="mark as completed" i]`).
+
+**Go to next item fallback:**
+- `pageFallback.findGoToNextItemButton(root)` matches button/anchor/role=button text `Go to next item` / `Next item` / `Continue`.
+- In single-page mode (synthetic queue), the controller clicks this after the handler+confirmer succeed — drives the next page load, which re-enters `bootIfRunning` and re-scrapes.
+
+**Assignment / gradedLti agreement handling:**
+- `KIND_BY_SEGMENT.gradedLti = 'assignment'` (new). `handlerForKind('assignment')` routes to a new `handlers.assignment`.
+- `handlers.assignment(ctx)` calls `pageFallback.findAgreementCheckbox(doc)` — primary match on `#agreement-checkbox-base`, fallback on any `input[type="checkbox"]` inside a label whose text contains "agree". If found and unchecked, sets `checked = true` and dispatches `input` + `change` events (bubbling) so React state updates. Returns `assignment-agreement-accepted-paused` (or `assignment-no-action` when no checkbox). Both outcomes are treated as pause-needed by `isFailureOutcome` — autopilot never auto-submits external assignments.
+
+**Completion confirmation strategy:**
+- Primary: existing per-row `findItemCompletionIndicator` with `isPositiveCompletionEl` rejection of "Not completed" / "not-completed".
+- Secondary (new): `completion-confirmer.waitForCompletion` accepts a `pageFallback` option. It captures a baseline `N/M learning items` count via `findTopProgressText` + `parseProgress` before polling. A strictly increasing `completed` count (with unchanged `total`) is treated as confirmation.
+- Fallback chain after primary timeout: `pageFallback.findMarkCompleteButton` → `tryMarkCompleteFallback` → retry confirmer up to `FALLBACK_CONFIRMER_TIMEOUT_MS` (15s).
+
+**Single-page synthetic queue:**
+- When `scrapeModule.items === []`, the controller now calls `buildSyntheticPageItem(scraperMod, currentUrl(), doc)` which derives `kind` from URL segment (`/lecture/` → video, `/supplement/` → reading, `/quiz/` → quiz, `/gradedLti/` → assignment) and uses `doc.title` (stripped of `| Coursera`) as the title. The 1-item synthetic queue runs through the normal handler+confirmer pipeline. On success, instead of advancing the cursor, the controller clicks `pageFallback.findGoToNextItemButton(doc)` — the page navigation re-enters `bootIfRunning` and re-scrapes for the next page.
+
+**Diagnostics:**
+- `scrapeModuleDiagnostics` now returns: `containerCandidates` (each with `selector`/`matched`/`nodeCount`/`itemCount`), `totalItemsFound`, `sectionCount`, `accordionHeaderCount`, `accordionPanelCount`, `learnAnchorCount`, `markCompleteCount`, `goToNextCount`, `headerSamples` (first 3 module-header visible texts, ≤80 chars each), `anchorSamples` (first 5 `/learn/` anchor visible texts).
+- The autopilot's "No items found" log line surfaces all of them on one row, so the next failing course can be diagnosed without guessing.
+
+**Tests:** 481 → 519 (+38). Notable additions:
+- 5 `parseRowText` tests (Task 1)
+- 3 `findAccordionHeaders` tests (Task 2)
+- 3 `pairHeaderWithPanel` tests (Task 3)
+- 2 `extractItemsFromPanel` tests (Task 4)
+- 3 accordion-layer integration tests (Task 5)
+- 1 universality test — Python Data Science fixture (Task 6)
+- 2 text-pattern fallback tests (Task 7)
+- 12 `lib/page-fallback.js` helper tests (Task 8)
+- 1 single-page synthetic-queue test (Task 9)
+- 1 video forward-seek-button fallback test (Task 10)
+- 2 assignment-handler tests (Task 11)
+- 1 top-progress confirmer signal test (Task 12)
+- 1 page-fallback mark-complete chain test (Task 13)
+- 1 enriched diagnostics test (Task 14)
+
+**Commits on `feat/module-autopilot` for this PR pass (15 commits):**
+- `02ef867` feat(scraper): add parseRowText universal row-text splitter
+- `638ad08` feat(scraper): find Coursera CDS accordion headers by role+text
+- `a51b730` feat(scraper): pair accordion header to panel via aria-controls
+- `7542d65` feat(scraper): extract items from accordion panel via row-text parsing
+- `cbd51c5` feat(scraper): accordion layer for Coursera Design System drawers
+- `21b5f7d` test(scraper): universality test — Python DS accordion fixture
+- `bad7058` feat(scraper): text-pattern fallback for selector-less drawers
+- `3f644ce` feat: add lib/page-fallback.js universal page-level helpers
+- `0dacad7` feat(autopilot): single-page synthetic-queue fallback with Go-to-next
+- `a6c8cc9` feat(video): fall back to Seek-Video-Forward button when currentTime is read-only
+- `0fca264` docs(video): explain forward-seek endTarget rationale
+- `1f03496` feat(autopilot): assignment handler ticks agreement checkbox + pauses
+- `b592748` feat(confirmer): treat top-progress count increase as completion signal
+- `4064426` feat(autopilot): use pageFallback.findMarkCompleteButton for cds-button-label
+- `49363ea` feat(diagnostics): richer no-items log with accordion/page-fallback counts
