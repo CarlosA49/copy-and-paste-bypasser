@@ -414,3 +414,43 @@ test('scrapeModuleDiagnostics reports drawer container with zero sectioned items
   assert.equal(typeof diag.sectionCount, 'number');
   assert.equal(diag.sectionCount >= 1, true, 'should count >=1 module-section node');
 });
+
+// ── parseRowText ──────────────────────────────────────────────────────────────
+const { parseRowText } = require('../lib/module-scraper.js');
+
+test('parseRowText splits "Lesson 2: Matrices and OperatorsReading. Duration: 10 minutes10 min"', () => {
+  const r = parseRowText('Lesson 2: Matrices and OperatorsReading. Duration: 10 minutes10 min');
+  assert.equal(r.title, 'Lesson 2: Matrices and Operators');
+  assert.equal(r.kind, 'reading');
+  assert.ok(/^Reading/.test(r.meta));
+});
+
+test('parseRowText handles "Introduction to Matrices and OperatorsVideo. Duration: 5 minutes"', () => {
+  const r = parseRowText('Introduction to Matrices and OperatorsVideo. Duration: 5 minutes');
+  assert.equal(r.title, 'Introduction to Matrices and Operators');
+  assert.equal(r.kind, 'video');
+});
+
+test('parseRowText strips leading "Completed" / "Not completed" status word', () => {
+  const r1 = parseRowText('CompletedSyllabusReading. Duration: 10 min');
+  assert.equal(r1.title, 'Syllabus');
+  assert.equal(r1.kind, 'reading');
+  const r2 = parseRowText('Not completedCourse PreviewVideo. Duration: 2 min');
+  assert.equal(r2.title, 'Course Preview');
+  assert.equal(r2.kind, 'video');
+});
+
+test('parseRowText recognizes Quiz, Practice Quiz, Assignment, Peer Review, Programming Assignment', () => {
+  assert.equal(parseRowText('Module 2 QuizQuiz. Duration: 30 min').kind, 'quiz');
+  assert.equal(parseRowText('Try It YourselfPractice Quiz. 5 questions').kind, 'quiz');
+  assert.equal(parseRowText('Homework 1Assignment. Due in 7 days').kind, 'quiz');
+  assert.equal(parseRowText('Peer Project ReviewPeer Review. 2 submissions').kind, 'peer-review');
+  assert.equal(parseRowText('Linked List LabProgramming Assignment. 90 min').kind, 'programming');
+});
+
+test('parseRowText returns kind:null and full text as title when no kind keyword is present', () => {
+  const r = parseRowText('Just some random row text');
+  assert.equal(r.title, 'Just some random row text');
+  assert.equal(r.kind, null);
+  assert.equal(r.meta, null);
+});
