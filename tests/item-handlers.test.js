@@ -208,3 +208,109 @@ test('discussion handler: aborts mid-typing via signal, stops engine, rejects', 
   assert.equal(result, 'rejected:aborted');
   assert.equal(stopped, true, 'engine.stop() should have been called on abort');
 });
+
+test('video handler (short video): plays through, waits for ended, post-end dwell, resolves', async () => {
+  const doc = new (require('jsdom').JSDOM)(
+    '<!doctype html><body><video></video></body>',
+    { url: 'https://www.coursera.org/learn/x/lecture/v1/intro' }
+  ).window.document;
+  const v = doc.querySelector('video');
+  Object.defineProperty(v, 'duration', { configurable: true, get: function () { return 60; } });
+  v.play = function () { v.paused = false; };
+  v.pause = function () { v.paused = true; };
+
+  const sleeps = [];
+  const sleep = function (ms) { sleeps.push(ms); return Promise.resolve(); };
+  const scroll = function () { return Promise.resolve(); };
+  const handlers = require('../lib/item-handlers.js').createHandlers({
+    sleep: sleep,
+    jitteredScroll: scroll,
+    timing: require('../lib/autopilot-timing.js'),
+    replies: require('../lib/discussion-replies.js'),
+  });
+  const sig = (function () {
+    const listeners = [];
+    return { aborted: false, addEventListener: function (k, fn) { if (k === 'abort') listeners.push(fn); }, removeEventListener: function () {}, _abort: function () { this.aborted = true; listeners.forEach(function (fn) { fn(); }); } };
+  })();
+  const p = handlers.video({ doc: doc, item: { id: 'v1', kind: 'video' }, rng: seededRng(1), signal: sig });
+  await new Promise(function (r) { setTimeout(r, 0); });
+  v.dispatchEvent(new doc.defaultView.Event('ended'));
+  const out = await p;
+  assert.equal(out.outcome, 'video-done');
+  assert.equal(out.mode, 'play-through');
+  assert.ok(sleeps.length >= 1, 'should have post-end dwell');
+});
+
+test('video handler (long video): seeks to targetTime then waits for ended', async () => {
+  const doc = new (require('jsdom').JSDOM)(
+    '<!doctype html><body><video></video></body>',
+    { url: 'https://www.coursera.org/learn/x/lecture/v2/long' }
+  ).window.document;
+  const v = doc.querySelector('video');
+  Object.defineProperty(v, 'duration', { configurable: true, get: function () { return 600; } });
+  let seekedTo = null;
+  Object.defineProperty(v, 'currentTime', {
+    configurable: true,
+    get: function () { return seekedTo || 0; },
+    set: function (val) { seekedTo = val; },
+  });
+  v.play = function () { v.paused = false; };
+  v.pause = function () { v.paused = true; };
+
+  const sleep = function () { return Promise.resolve(); };
+  const scroll = function () { return Promise.resolve(); };
+  const handlers = require('../lib/item-handlers.js').createHandlers({
+    sleep: sleep,
+    jitteredScroll: scroll,
+    timing: require('../lib/autopilot-timing.js'),
+    replies: require('../lib/discussion-replies.js'),
+  });
+  const sig = { aborted: false, addEventListener: function () {}, removeEventListener: function () {} };
+  const p = handlers.video({ doc: doc, item: { id: 'v2', kind: 'video' }, rng: seededRng(2), signal: sig });
+  await new Promise(function (r) { setTimeout(r, 0); });
+  assert.ok(seekedTo !== null, 'currentTime should have been set');
+  v.dispatchEvent(new doc.defaultView.Event('ended'));
+  const out = await p;
+  assert.equal(out.outcome, 'video-done');
+  assert.equal(out.mode, 'seek');
+  assert.ok(seekedTo >= 480 && seekedTo <= 540,
+    'seekedTo ' + seekedTo + ' should be in [480, 540]');
+});
+
+test('video handler: aborts mid-flight on signal abort', async () => {
+  const doc = new (require('jsdom').JSDOM)(
+    '<!doctype html><body><video></video></body>'
+  ).window.document;
+  const v = doc.querySelector('video');
+  Object.defineProperty(v, 'duration', { configurable: true, get: function () { return 600; } });
+  Object.defineProperty(v, 'currentTime', { configurable: true, get: function () { return 0; }, set: function () {} });
+  v.play = function () {};
+  v.pause = function () {};
+
+  const sleep = function (ms, signal) {
+    return new Promise(function (resolve, reject) {
+      if (signal && signal.addEventListener) {
+        signal.addEventListener('abort', function () { reject(new Error('aborted')); });
+      }
+    });
+  };
+  const handlers = require('../lib/item-handlers.js').createHandlers({
+    sleep: sleep,
+    jitteredScroll: function () { return Promise.resolve(); },
+    timing: require('../lib/autopilot-timing.js'),
+    replies: require('../lib/discussion-replies.js'),
+  });
+  const listeners = [];
+  const sig = {
+    aborted: false,
+    addEventListener: function (k, fn) { if (k === 'abort') listeners.push(fn); },
+    removeEventListener: function () {},
+  };
+  const p = handlers.video({ doc: doc, item: { id: 'v3', kind: 'video' }, rng: seededRng(3), signal: sig })
+    .then(function () { return 'resolved'; }, function (e) { return 'rejected:' + (e && e.message || ''); });
+  await new Promise(function (r) { setTimeout(r, 0); });
+  sig.aborted = true;
+  listeners.forEach(function (fn) { fn(); });
+  const result = await p;
+  assert.equal(result, 'rejected:aborted');
+});
