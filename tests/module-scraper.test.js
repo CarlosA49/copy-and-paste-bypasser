@@ -715,3 +715,29 @@ test('scrapeModule: accordion path works on a different course (Python Data Scie
   assert.equal(r.items[3].title, 'Groupby Lab');
   assert.equal(r.courseId, 'python-ds');
 });
+
+const TEXT_ONLY_HTML =
+  '<nav>' +
+    '<div>Module 1</div><div>Course Pages</div>' +
+    '<a href="/learn/matlab/lecture/v1/x"><div>Course PreviewVideo. 2 min</div></a>' +
+    '<a href="/learn/matlab/supplement/r1/y"><div>SyllabusReading. 10 min</div></a>' +
+    '<a href="/learn/matlab/supplement/r2/z"><div>Grading and LogisticsReading. 10 min</div></a>' +
+    '<div>Module 2</div><div>The MATLAB Environment</div>' +
+    '<a href="/learn/matlab/lecture/v2/q"><div>Intro to MATLABVideo. 5 min</div></a>' +
+  '</nav>';
+
+test('scrapeModule: text-pattern path finds Module 1 items when accordion headers are missing', () => {
+  const d = dom(TEXT_ONLY_HTML, 'https://www.coursera.org/learn/matlab/supplement/r1/y');
+  const r = scrapeModule(d);
+  assert.equal(r.items.length, 3, 'Module 1 has 3 items');
+  assert.equal(r.items[0].id, 'v1');
+  assert.equal(r.items[0].kind, 'video');
+  assert.equal(r.items[1].title, 'Syllabus');
+  assert.equal(r.items[2].title, 'Grading and Logistics');
+});
+
+test('scrapeModule: text-pattern path does NOT bleed Module 2 items into Module 1 queue', () => {
+  const d = dom(TEXT_ONLY_HTML, 'https://www.coursera.org/learn/matlab/supplement/r1/y');
+  const r = scrapeModule(d);
+  assert.equal(r.items.find(function (it) { return it.id === 'v2'; }), undefined);
+});
