@@ -61,12 +61,22 @@
 
   function startAutopilot() {
     const a = api();
-    if (!a || !a.moduleAutopilot || typeof a.moduleAutopilot.createAutopilot !== 'function') return;
-    if (!a.sidebar) return;
-    if (!a.autopilotState) return;
+    if (!a) { console.warn('[autopilot] disabled: window.ClipboardCleaner is missing'); return; }
+    if (!a.moduleAutopilot || typeof a.moduleAutopilot.createAutopilot !== 'function') {
+      console.warn('[autopilot] disabled: moduleAutopilot.createAutopilot not loaded');
+      return;
+    }
+    if (!a.sidebar) { console.warn('[autopilot] disabled: sidebar API not loaded'); return; }
+    if (!a.autopilotState) { console.warn('[autopilot] disabled: autopilotState not loaded'); return; }
     const storage = a.autopilotState.chromeStorageOrNull && a.autopilotState.chromeStorageOrNull();
-    if (!storage) return;
-    if (!a.itemHandlers || typeof a.itemHandlers.createHandlers !== 'function') return;
+    if (!storage) {
+      console.warn('[autopilot] disabled: chrome.storage.local unavailable (missing "storage" permission?)');
+      return;
+    }
+    if (!a.itemHandlers || typeof a.itemHandlers.createHandlers !== 'function') {
+      console.warn('[autopilot] disabled: itemHandlers.createHandlers not loaded');
+      return;
+    }
     const handlers = a.itemHandlers.createHandlers({
       sleep: function (ms, signal) {
         return new Promise(function (resolve, reject) {
