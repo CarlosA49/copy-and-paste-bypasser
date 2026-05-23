@@ -527,3 +527,69 @@ test('start: logs a diagnostic when no items are found', async () => {
   assert.ok(summary.indexOf('Tried:') !== -1,
     'diagnostic should include the "Tried:" prefix listing candidate selectors');
 });
+
+function fakeSessionStorage() {
+  let v = null;
+  return {
+    getItem: function (k) { return k === 'ccp_autopilot_tabkey' ? v : null; },
+    setItem: function (k, val) { if (k === 'ccp_autopilot_tabkey') v = val; },
+    removeItem: function (k) { if (k === 'ccp_autopilot_tabkey') v = null; },
+  };
+}
+
+test('createAutopilot reuses tabKey from sessionStorage when present', () => {
+  const ss = fakeSessionStorage();
+  ss.setItem('ccp_autopilot_tabkey', 'tab-persisted');
+  const j = makePage(MODULE_HTML);
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: fakeStorage(), handlers: mkFakeHandlers(),
+    nowFn: function () { return 1_000_000; }, rng: seededRng(1), sessionStorage: ss,
+    navigate: function () { return Promise.resolve(); },
+    sidebar: { setAutopilotStatus: function () {}, appendAutopilotLog: function () {}, setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; } },
+  });
+  assert.equal(ap._tabKey, 'tab-persisted');
+});
+
+test('createAutopilot generates and persists a new tabKey when sessionStorage is empty', () => {
+  const ss = fakeSessionStorage();
+  const j = makePage(MODULE_HTML);
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: fakeStorage(), handlers: mkFakeHandlers(),
+    nowFn: function () { return 1_000_000; }, rng: seededRng(1), sessionStorage: ss,
+    navigate: function () { return Promise.resolve(); },
+    sidebar: { setAutopilotStatus: function () {}, appendAutopilotLog: function () {}, setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; } },
+  });
+  assert.equal(typeof ap._tabKey, 'string');
+  assert.ok(ap._tabKey.length > 0);
+  assert.equal(ss.getItem('ccp_autopilot_tabkey'), ap._tabKey);
+});
+
+test('bootIfRunning: same-tab reload (persisted tabKey == ownerTabKey) reclaims ownership silently', async () => {
+  const j = makePage(MODULE_HTML, 'https://www.coursera.org/learn/x/lecture/v1/intro');
+  const storage = fakeStorage();
+  const d = stateMod.defaults();
+  d.status = 'running';
+  d.courseId = 'x';
+  d.queue = [{ id: 'v1', kind: 'video', url: '/learn/x/lecture/v1/intro', title: 'Intro' }];
+  d.ownerTabKey = 'tab-persisted';
+  d.heartbeatAt = 1_000_000 - 1000; // fresh
+  await new Promise(function (r) { const it = {}; it[stateMod.RUN_KEY] = d; storage.set(it, r); });
+  const ss = fakeSessionStorage();
+  ss.setItem('ccp_autopilot_tabkey', 'tab-persisted');
+  let banner = '';
+  const handlers = mkFakeHandlers();
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    nowFn: function () { return 1_000_000; }, rng: seededRng(1), sessionStorage: ss,
+    navigate: function () { return Promise.resolve(); },
+    sidebar: {
+      setAutopilotStatus: function () {}, appendAutopilotLog: function () {},
+      setAutopilotPaused: function (paused, text) { banner = text || banner; },
+      setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; },
+    },
+  });
+  const ran = await ap.bootIfRunning();
+  assert.equal(ran, true, 'should reclaim and run');
+  assert.equal(handlers.calls.length, 1);
+  assert.equal(banner, '', 'should NOT show a foreign-active banner');
+});
