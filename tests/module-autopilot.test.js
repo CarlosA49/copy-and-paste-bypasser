@@ -524,6 +524,6 @@ test('start: logs a diagnostic when no items are found', async () => {
   await ap.start();
   const summary = logs.find(function (l) { return l.indexOf('No items found') !== -1; });
   assert.ok(summary, 'should log a no-items diagnostic');
-  assert.ok(summary.indexOf('lesson-collection') !== -1 || summary.indexOf('candidate') !== -1,
-    'diagnostic should reference a candidate selector');
+  assert.ok(summary.indexOf('Tried:') !== -1,
+    'diagnostic should include the "Tried:" prefix listing candidate selectors');
 });
