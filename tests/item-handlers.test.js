@@ -166,3 +166,45 @@ test('discussion handler: respects replyHistory cooldown', async () => {
   });
   assert.ok(history.indexOf(out.usedReply) === -1, 'picked reply must not be in cooldown history');
 });
+
+test('discussion handler: aborts mid-typing via signal, stops engine, rejects', async () => {
+  const doc = makeFakeDoc(
+    '<textarea data-testid="reply-input"></textarea>' +
+    '<button data-testid="submit-reply">Reply</button>'
+  );
+  let stopped = false;
+  const fakeEngine = {
+    TypingEngine: function () {
+      this.start = function (opts) {
+        // Do NOT call onDone — simulate typing-in-progress.
+        // Save opts so we could inspect later if needed.
+        this._opts = opts;
+      };
+      this.stop = function () { stopped = true; };
+    },
+  };
+  const fakeInjector = { insertOrBackspace: function () {}, isEditable: function () { return true; } };
+  const submitBtn = doc.querySelector('[data-testid="submit-reply"]');
+  submitBtn.click = function () {};
+
+  const handlers = createHandlers({
+    sleep: function () { return Promise.resolve(); },
+    jitteredScroll: function () { return Promise.resolve(); },
+    timing: require('../lib/autopilot-timing.js'),
+    replies: require('../lib/discussion-replies.js'),
+    typingEngine: fakeEngine,
+    typingInjector: fakeInjector,
+  });
+  const sig = mkSignal();
+  const p = handlers.discussion({
+    doc: doc, item: { id: 'd1', kind: 'discussion' },
+    rng: seededRng(1), signal: sig, replyHistory: [],
+  }).then(function () { return 'resolved'; }, function (e) { return 'rejected:' + (e && e.message || ''); });
+
+  // Let the handler progress to the typing promise where it attaches the abort listener.
+  await new Promise(function (r) { setTimeout(r, 0); });
+  sig._abort();
+  const result = await p;
+  assert.equal(result, 'rejected:aborted');
+  assert.equal(stopped, true, 'engine.stop() should have been called on abort');
+});
