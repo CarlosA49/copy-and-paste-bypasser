@@ -341,3 +341,13 @@ test('findItemCompletionIndicator returns null when only "Not completed" indicat
   assert.equal(findItemCompletionIndicator(d, 'v1'), null,
     '"Not completed" must not be treated as a completion indicator');
 });
+
+test('findItemCompletionIndicator rejects data-testid="not-completed" indicator', () => {
+  const d = dom(
+    '<div data-testid="lesson-collection">' +
+      '<a href="/learn/test-course/lecture/v1/x">A<span data-testid="status-not-completed"></span></a>' +
+    '</div>'
+  );
+  assert.equal(findItemCompletionIndicator(d, 'v1'), null,
+    'data-testid="status-not-completed" must not be treated as a completion indicator');
+});
