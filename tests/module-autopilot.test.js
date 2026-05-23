@@ -1000,3 +1000,50 @@ test('SPA: after pushState changes URL, autopilot re-enters bootIfRunning and ru
   await new Promise(function (r) { setTimeout(r, 0); });
   assert.equal(handlers.calls.find(function (c) { return c.kind === 'reading'; }) ? true : false, true);
 });
+
+test('confirmer timeout: logs a diagnostics snapshot with item id, kind, currentTime, queue length', async () => {
+  const html =
+    '<div data-testid="lesson-collection">' +
+      '<a href="/learn/x/lecture/v1/intro">Intro</a>' +
+      '<a href="/learn/x/supplement/r1/r">R</a>' +
+    '</div>' +
+    '<video id="vid"></video>';
+  const j = makePage(html, 'https://www.coursera.org/learn/x/lecture/v1/intro');
+  Object.defineProperty(j.window.document.getElementById('vid'), 'duration', { value: 60, configurable: true });
+  Object.defineProperty(j.window.document.getElementById('vid'), 'currentTime', { value: 55, configurable: true });
+  const storage = fakeStorage();
+  const d = stateMod.defaults();
+  d.status = 'running';
+  d.courseId = 'x';
+  d.queue = [
+    { id: 'v1', kind: 'video', url: '/learn/x/lecture/v1/intro', title: 'Intro' },
+    { id: 'r1', kind: 'reading', url: '/learn/x/supplement/r1/r', title: 'R' },
+  ];
+  d.cursor = 0;
+  d.ownerTabKey = 'tab-1';
+  d.heartbeatAt = 1_000_000;
+  d.settings = { behaviorMode: 'fast', pauseOnUserInput: false };
+  await new Promise(function (r) { const it = {}; it[stateMod.RUN_KEY] = d; storage.set(it, r); });
+  const handlers = mkFakeHandlers();
+  handlers.tryMarkCompleteFallback = function () { return false; };
+  const confirmer = { waitForCompletion: function () { return Promise.resolve(false); } };
+  const logs = [];
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    confirmer: confirmer,
+    nowFn: function () { return 1_000_000; }, tabKey: 'tab-1', rng: seededRng(1),
+    sessionStorage: fakeSessionStorage(),
+    navigate: function () { return Promise.resolve(); },
+    sidebar: {
+      setAutopilotStatus: function () {}, appendAutopilotLog: function (l) { logs.push(l); },
+      setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; },
+    },
+  });
+  await ap.bootIfRunning();
+  const diag = logs.find(function (l) { return /diag/i.test(l); });
+  assert.ok(diag, 'should log a diagnostic line containing the word "diag"');
+  assert.ok(/v1/.test(diag), 'should mention item id');
+  assert.ok(/video/.test(diag), 'should mention kind');
+  assert.ok(/curT=55/.test(diag), 'should include current video time');
+  assert.ok(/queue=2/.test(diag), 'should include queue length');
+});
