@@ -1212,3 +1212,43 @@ git commit -m "docs(plan): record change summary for drawer scraper + ownership"
 - `ccp_autopilot_tabkey` storage key — same string in implementation and tests ✓
 - `setAutopilotPaused(isPaused, bannerText, opts?)` — extended signature consistent across Task 11 implementation and sidebar wiring ✓
 - `appendAutopilotLog` — already exists on sidebar, used in Task 2 ✓
+
+---
+
+## Change Summary
+
+**Scraper:**
+- New container selectors detect the modern Coursera drawer (`[data-testid="course-content-drawer"]`, `aside[aria-label*="course content" i]`, `[data-testid*="course-content" i]`, `[class*="CourseContentDrawer" i]`).
+- New `SECTION_SELECTORS` partition the drawer into module sections so the queue is scoped to the current URL's module only.
+- New `VISIBLE_KIND_MAP` + `kindFromVisibleText` derive kind from row meta text ("Video • 2 min" → `kind: 'video'`) when the URL kind segment doesn't classify.
+- New `.item-title` / `[class*="ItemTitle" i]` selectors give the title without the meta line.
+- Expanded `COMPLETED_SELECTORS` add `status-completed`, `[data-testid*="completed" i]`, `[data-icon*="check" i]` for circular drawer indicators.
+- `isPositiveCompletionEl` helper rejects "Not completed" / "not-completed" elements (both aria-label and data-testid) — fixes a substring-match false-positive that would have caused autopilot to skip unfinished items.
+- `scrapeModuleDiagnostics()` returns per-selector match counts plus `sectionCount`; the controller logs this via `appendAutopilotLog` when no items are found, replacing the silent "No items found" failure mode.
+
+**Ownership:**
+- `tabKey` is persisted in `sessionStorage` under `ccp_autopilot_tabkey` so a same-tab reload reclaims ownership without flashing a foreign-active banner.
+- Stale-heartbeat foreign owners are auto-taken-over at boot (locked in by a regression test).
+- Foreign-active banner only fires when the stored `ownerTabKey` is genuinely fresh AND differs from our persisted `tabKey` (locked in by a regression test).
+- New `takeOver()` controller method force-claims ownership; surfaced via a new "Take over this tab" sidebar button shown next to "Resume" when the foreign-active banner is up.
+- `content.js` only runs autopilot ownership logic on the top frame (`window.top === window`) — no more iframe races.
+
+**Tests:**
+- 462 → 481 (+19). All passing.
+- New jsdom fixture (`DRAWER_HTML`) covers the screenshot one-to-one: Module 1: Course Pages with Course Preview / Syllabus / Grading and Logistics / Recommended Textbook, plus a Module 2 to verify the queue stops at the next module header.
+
+**Commits (top-to-bottom on `feat/module-autopilot`):**
+- `cc9e407` feat(scraper): add scrapeModuleDiagnostics helper
+- `c9d27de` feat(autopilot): log selector diagnostics when no items found
+- `b77efb9` fix(autopilot): guard logNoItemsDiagnostic + tighten test assertion
+- `00b3588` test(scraper): add failing drawer-layout fixture and tests
+- `ec64ef5` feat(scraper): parse modern Coursera course-content drawer
+- `ffe80b1` fix(scraper): findItemCompletionIndicator must reject "Not completed"
+- `4a36fa4` fix(scraper): remove unused ROW_SELECTORS and harden completion guard
+- `dc61e67` test(scraper): lock in drawer kind+title extraction
+- `3777257` feat(scraper): include section count in no-items diagnostic
+- `cba51da` fix(autopilot): only top frame runs ownership logic
+- `4edc42c` feat(autopilot): persist tabKey in sessionStorage for same-tab reload
+- `8706df5` test(autopilot): lock in stale-heartbeat auto-takeover at boot
+- `09d8f3a` test(autopilot): foreign-active banner only on genuine other tab
+- `95ac548` feat(autopilot): add Take-over-this-tab button + takeOver() controller
