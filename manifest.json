@@ -33,6 +33,7 @@
         "lib/completion-confirmer.js",
         "lib/module-autopilot.js",
         "lib/sidebar.js",
+        "lib/autopilot-input-guard.js",
         "content.js"
       ],
       "css": ["lib/sidebar.css"],

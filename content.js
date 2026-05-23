@@ -128,26 +128,33 @@
       sidebar: a.sidebar,
       confirmer: confirmer,
     });
+    let _latestSettings = { pauseOnUserInput: true, autoSubmitQuizzes: false, behaviorMode: 'fast', runScope: 'module' };
+    // Initialize from storage once.
+    a.autopilotState.createState(storage).load(function (cur) {
+      if (cur && cur.settings) _latestSettings = Object.assign({}, _latestSettings, cur.settings);
+    });
     if (typeof a.sidebar.setAutopilotHandlers === 'function') {
       a.sidebar.setAutopilotHandlers({
-        onRun:      function () { _autopilotInstance.start(); },
-        onStop:     function () { _autopilotInstance.stop(); },
-        onResume:   function () { _autopilotInstance.resume(); },
+        onRun:    function () { _autopilotInstance.start({ scope: 'module' }); },
+        onRunAllModules: function () { _autopilotInstance.startAllModules(); },
+        onStop:   function () { _autopilotInstance.stop(); },
+        onResume: function () { _autopilotInstance.resume(); },
         onTakeOver: function () { _autopilotInstance.takeOver(); },
         onSettingsChange: function (settings) {
+          _latestSettings = Object.assign({}, _latestSettings, settings || {});
           a.autopilotState && a.autopilotState.createState(storage).update({ settings: settings }, function () {});
         },
       });
     }
-    // Pause-on-user-input listener (trusted only, ignore sidebar shadow events).
-    document.addEventListener('keydown', function (ev) {
-      if (!ev.isTrusted) return;
-      const path = (typeof ev.composedPath === 'function') ? ev.composedPath() : [];
-      for (let i = 0; i < path.length; i++) {
-        if (path[i] && path[i].id === 'ccp-host-root') return;
-      }
-      _autopilotInstance && _autopilotInstance.pause('You started interacting.');
-    }, true);
+    // Pause-on-user-input listeners — gated by settings.pauseOnUserInput.
+    if (a.autopilotInputGuard && typeof a.autopilotInputGuard.attachInputListeners === 'function') {
+      a.autopilotInputGuard.attachInputListeners(
+        document,
+        function () { return _latestSettings; },
+        null,
+        function () { _autopilotInstance && _autopilotInstance.pause('You started interacting.'); }
+      );
+    }
     // Visibility pause after 60s hidden.
     let hiddenSince = 0;
     document.addEventListener('visibilitychange', function () {
