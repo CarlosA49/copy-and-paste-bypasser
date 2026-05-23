@@ -373,3 +373,137 @@ test('start: kicks off handler when current URL already matches queue[0]', async
   const after = await new Promise(function (r) { storage.get([stateMod.RUN_KEY], function (g) { r(g[stateMod.RUN_KEY]); }); });
   assert.equal(after.cursor, 1, 'cursor should advance after handler resolves');
 });
+
+function mkConfirmer(behavior) {
+  let n = 0;
+  return {
+    waitForCompletion: function (opts) {
+      n += 1;
+      const r = behavior(opts.itemId, n);
+      if (r === 'throw') return Promise.reject(new Error('aborted'));
+      return Promise.resolve(!!r);
+    },
+    _callCount: function () { return n; },
+  };
+}
+
+test('handler success but no green check => does not advance cursor', async () => {
+  const j = makePage(MODULE_HTML, 'https://www.coursera.org/learn/x/lecture/v1/intro');
+  const storage = fakeStorage();
+  const d = stateMod.defaults();
+  d.status = 'running';
+  d.courseId = 'x';
+  d.queue = [
+    { id: 'v1', kind: 'video', url: '/learn/x/lecture/v1/intro', title: 'Intro' },
+    { id: 'r1', kind: 'reading', url: '/learn/x/supplement/r1/reading', title: 'Reading' },
+  ];
+  await new Promise(function (r) { const it = {}; it[stateMod.RUN_KEY] = d; storage.set(it, r); });
+  const handlers = mkFakeHandlers();
+  handlers.tryMarkCompleteFallback = function () { return false; };
+  const confirmer = mkConfirmer(function () { return false; });
+  const navTargets = [];
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    confirmer: confirmer,
+    nowFn: function () { return 1_000_000; }, tabKey: 'tab-1', rng: seededRng(1),
+    navigate: function (url) { navTargets.push(url); return Promise.resolve(); },
+    sidebar: { setAutopilotStatus: function () {}, appendAutopilotLog: function () {}, setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; } },
+  });
+  await ap.bootIfRunning();
+  const after = await new Promise(function (r) { storage.get([stateMod.RUN_KEY], function (g) { r(g[stateMod.RUN_KEY]); }); });
+  assert.equal(after.cursor, 0, 'cursor must NOT advance without green check');
+  assert.equal(after.status, 'paused');
+  assert.equal(navTargets.length, 0);
+});
+
+test('green check appears after polling => advances cursor', async () => {
+  const j = makePage(MODULE_HTML, 'https://www.coursera.org/learn/x/lecture/v1/intro');
+  const storage = fakeStorage();
+  const d = stateMod.defaults();
+  d.status = 'running';
+  d.courseId = 'x';
+  d.queue = [
+    { id: 'v1', kind: 'video', url: '/learn/x/lecture/v1/intro', title: 'Intro' },
+    { id: 'r1', kind: 'reading', url: '/learn/x/supplement/r1/reading', title: 'Reading' },
+  ];
+  await new Promise(function (r) { const it = {}; it[stateMod.RUN_KEY] = d; storage.set(it, r); });
+  const handlers = mkFakeHandlers();
+  const confirmer = mkConfirmer(function () { return true; });
+  const navTargets = [];
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    confirmer: confirmer,
+    nowFn: function () { return 1_000_000; }, tabKey: 'tab-1', rng: seededRng(1),
+    navigate: function (url) { navTargets.push(url); return Promise.resolve(); },
+    sidebar: { setAutopilotStatus: function () {}, appendAutopilotLog: function () {}, setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; } },
+  });
+  await ap.bootIfRunning();
+  const after = await new Promise(function (r) { storage.get([stateMod.RUN_KEY], function (g) { r(g[stateMod.RUN_KEY]); }); });
+  assert.equal(after.cursor, 1);
+  assert.equal(navTargets.length, 1);
+  assert.ok(navTargets[0].indexOf('/supplement/r1') !== -1);
+});
+
+test('handler success + first confirmer timeout => mark-complete fallback => second confirmer pass => advance', async () => {
+  const j = makePage(MODULE_HTML, 'https://www.coursera.org/learn/x/lecture/v1/intro');
+  const storage = fakeStorage();
+  const d = stateMod.defaults();
+  d.status = 'running';
+  d.courseId = 'x';
+  d.queue = [
+    { id: 'v1', kind: 'video', url: '/learn/x/lecture/v1/intro', title: 'Intro' },
+    { id: 'r1', kind: 'reading', url: '/learn/x/supplement/r1/reading', title: 'Reading' },
+  ];
+  await new Promise(function (r) { const it = {}; it[stateMod.RUN_KEY] = d; storage.set(it, r); });
+  const handlers = mkFakeHandlers();
+  let fallbackCalls = 0;
+  handlers.tryMarkCompleteFallback = function () { fallbackCalls += 1; return true; };
+  let callIdx = 0;
+  const confirmer = {
+    waitForCompletion: function () {
+      callIdx += 1;
+      return Promise.resolve(callIdx >= 2);
+    },
+  };
+  const navTargets = [];
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    confirmer: confirmer,
+    nowFn: function () { return 1_000_000; }, tabKey: 'tab-1', rng: seededRng(1),
+    navigate: function (url) { navTargets.push(url); return Promise.resolve(); },
+    sidebar: { setAutopilotStatus: function () {}, appendAutopilotLog: function () {}, setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; } },
+  });
+  await ap.bootIfRunning();
+  assert.equal(fallbackCalls, 1, 'fallback should have been invoked once');
+  assert.equal(callIdx, 2, 'confirmer should have been polled twice (primary + post-fallback)');
+  const after = await new Promise(function (r) { storage.get([stateMod.RUN_KEY], function (g) { r(g[stateMod.RUN_KEY]); }); });
+  assert.equal(after.cursor, 1, 'cursor advanced after fallback resolved the wait');
+});
+
+test('handler failure outcome (pause-needed-*) skips confirmer entirely and pauses', async () => {
+  const j = makePage(MODULE_HTML, 'https://www.coursera.org/learn/x/quiz/q1/x');
+  const storage = fakeStorage();
+  const d = stateMod.defaults();
+  d.status = 'running';
+  d.courseId = 'x';
+  d.queue = [
+    { id: 'q1', kind: 'quiz', url: '/learn/x/quiz/q1/x', title: 'Quiz' },
+  ];
+  await new Promise(function (r) { const it = {}; it[stateMod.RUN_KEY] = d; storage.set(it, r); });
+  const handlers = mkFakeHandlers();
+  handlers.fallback = function () { return Promise.resolve({ outcome: 'pause-needed-no-answer' }); };
+  let confirmerCalls = 0;
+  const confirmer = { waitForCompletion: function () { confirmerCalls += 1; return Promise.resolve(true); } };
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    confirmer: confirmer,
+    nowFn: function () { return 1_000_000; }, tabKey: 'tab-1', rng: seededRng(1),
+    navigate: function () { return Promise.resolve(); },
+    sidebar: { setAutopilotStatus: function () {}, appendAutopilotLog: function () {}, setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; } },
+  });
+  await ap.bootIfRunning();
+  assert.equal(confirmerCalls, 0, 'confirmer must NOT be polled on a failure outcome');
+  const after = await new Promise(function (r) { storage.get([stateMod.RUN_KEY], function (g) { r(g[stateMod.RUN_KEY]); }); });
+  assert.equal(after.status, 'paused');
+  assert.equal(after.cursor, 0);
+});
