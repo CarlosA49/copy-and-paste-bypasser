@@ -791,10 +791,13 @@ test('start: when current URL matches an unfinished safe item, starts cursor the
     sessionStorage: fakeSessionStorage(),
     navigate: function (url) { navTargets.push(url); return Promise.resolve(); },
     sidebar: { setAutopilotStatus: function () {}, appendAutopilotLog: function () {}, setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; } },
+    confirmer: { waitForCompletion: function () { return Promise.resolve(false); } },
   });
   await ap.start();
   const got = await new Promise(function (r) { storage.get([stateMod.RUN_KEY], function (g) { r(g[stateMod.RUN_KEY]); }); });
   // queue is [r1, v2], current URL is v2 → cursor should be 1.
+  // confirmer returns false so runCurrentItem enters the pause-needed path and
+  // does NOT advance the cursor — the assertion holds at 1.
   assert.equal(got.queue.length, 2);
   assert.equal(got.cursor, 1);
 });
