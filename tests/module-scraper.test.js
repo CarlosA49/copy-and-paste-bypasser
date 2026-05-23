@@ -396,3 +396,21 @@ test('drawer: title is the title element only, not concatenated with the meta li
   assert.equal(r.items[0].title, 'Syllabus');
   assert.equal(r.items[0].title.indexOf('Reading'), -1, 'title must not include meta line');
 });
+
+test('scrapeModuleDiagnostics reports drawer container with zero sectioned items', () => {
+  const d = dom(
+    '<aside data-testid="course-content-drawer">' +
+      '<section data-testid="module-section">' +
+        '<header>Module 1</header>' +
+        // no anchors at all — Coursera placeholder while loading
+      '</section>' +
+    '</aside>'
+  );
+  const diag = scrapeModuleDiagnostics(d);
+  const drawer = diag.containerCandidates.find(function (c) { return c.selector === '[data-testid="course-content-drawer"]'; });
+  assert.ok(drawer, 'drawer candidate should be present');
+  assert.equal(drawer.matched, true);
+  assert.equal(drawer.itemCount, 0);
+  assert.equal(typeof diag.sectionCount, 'number');
+  assert.equal(diag.sectionCount >= 1, true, 'should count >=1 module-section node');
+});
