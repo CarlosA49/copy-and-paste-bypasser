@@ -1231,3 +1231,99 @@ test('start: discussion items log "⏭ Skipped discussion prompt:" with the item
   assert.ok(skipLog, 'should log "Skipped discussion prompt"');
   assert.ok(/Services Discussion/.test(skipLog), 'should include the item title');
 });
+
+test('module scope: stops cleanly when the current module is complete (no cross-module bleed)', async () => {
+  // Two modules; current page is in M1. start() builds queue from M1 only.
+  // M1 has 1 safe item; the autopilot processes it and stops, NOT continuing to M2.
+  const html =
+    '<div>' +
+      '<button class="cds-AccordionHeader-button" aria-controls="m1p"><div>Module 1</div></button>' +
+      '<div id="m1p"><ul>' +
+        '<li><a href="/learn/x/lecture/v1/intro"><div class="outline-single-item-content-wrapper"><div><div>Intro</div><div>Video. 2 min</div></div></div></a></li>' +
+      '</ul></div>' +
+      '<button class="cds-AccordionHeader-button" aria-controls="m2p"><div>Module 2</div></button>' +
+      '<div id="m2p"><ul>' +
+        '<li><a href="/learn/x/lecture/v2/two"><div class="outline-single-item-content-wrapper"><div><div>Two</div><div>Video. 5 min</div></div></div></a></li>' +
+      '</ul></div>' +
+    '</div>';
+  const j = makePage(html, 'https://www.coursera.org/learn/x/lecture/v1/intro');
+  const storage = fakeStorage();
+  const handlers = mkFakeHandlers();
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    nowFn: function () { return 1_000_000; }, tabKey: 'tab-1', rng: seededRng(1),
+    sessionStorage: fakeSessionStorage(),
+    navigate: function () { return Promise.resolve(); },
+    sidebar: { setAutopilotStatus: function () {}, appendAutopilotLog: function () {}, setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; } },
+  });
+  await ap.start();
+  const all = await new Promise(function (r) { storage.get([stateMod.RUN_KEY], function (g) { r(g); }); });
+  const got = all[stateMod.RUN_KEY];
+  assert.ok(got, 'storage should have RUN_KEY state');
+  assert.equal(got.runScope, 'module', 'scope should be module-level');
+  assert.equal(got.status, 'idle', 'should finish cleanly after processing M1');
+  assert.equal(handlers.calls.length, 1, 'only one handler call (M1 item only, no M2)');
+  assert.equal(handlers.calls[0].id, 'v1', 'processed item should be v1 from M1');
+});
+
+test('course scope: queues safe items across multiple modules in DOM order', async () => {
+  const html =
+    '<div>' +
+      '<button class="cds-AccordionHeader-button" aria-controls="m1p"><div>Module 1</div></button>' +
+      '<div id="m1p"><ul>' +
+        '<li><a href="/learn/x/lecture/v1/intro"><div class="outline-single-item-content-wrapper"><div><div>Intro</div><div>Video. 2 min</div></div></div></a></li>' +
+        '<li><a href="/learn/x/supplement/r1/sy"><div class="outline-single-item-content-wrapper"><div><div>Syllabus</div><div>Reading. 10 min</div></div></div></a></li>' +
+      '</ul></div>' +
+      '<button class="cds-AccordionHeader-button" aria-controls="m2p"><div>Module 2</div></button>' +
+      '<div id="m2p"><ul>' +
+        '<li><a href="/learn/x/lecture/v2/m2"><div class="outline-single-item-content-wrapper"><div><div>M2</div><div>Video. 5 min</div></div></div></a></li>' +
+        '<li><a href="/learn/x/supplement/r2/r2"><div class="outline-single-item-content-wrapper"><div><div>R2</div><div>Reading. 8 min</div></div></div></a></li>' +
+      '</ul></div>' +
+    '</div>';
+  const j = makePage(html, 'https://www.coursera.org/learn/x/lecture/v1/intro');
+  const storage = fakeStorage();
+  const handlers = mkFakeHandlers();
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    nowFn: function () { return 1_000_000; }, tabKey: 'tab-1', rng: seededRng(1),
+    sessionStorage: fakeSessionStorage(),
+    navigate: function () { return Promise.resolve(); },
+    sidebar: { setAutopilotStatus: function () {}, appendAutopilotLog: function () {}, setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; } },
+    navigateUrlChangeTimeoutMs: 10,
+  });
+  await ap.startAllModules();
+  const got = await new Promise(function (r) { storage.get([stateMod.RUN_KEY], function (g) { r(g[stateMod.RUN_KEY]); }); });
+  assert.equal(got.queue.length, 4, 'should include all 4 safe items across both modules');
+  assert.deepEqual(got.queue.map(function (it) { return it.id; }), ['v1', 'r1', 'v2', 'r2']);
+  assert.equal(got.runScope, 'course');
+});
+
+test('course scope: skips blocked items in subsequent modules too', async () => {
+  const html =
+    '<div>' +
+      '<button class="cds-AccordionHeader-button" aria-controls="m1p"><div>Module 1</div></button>' +
+      '<div id="m1p"><ul>' +
+        '<li><a href="/learn/x/lecture/v1/intro"><div class="outline-single-item-content-wrapper"><div><div>Intro</div><div>Video</div></div></div></a></li>' +
+      '</ul></div>' +
+      '<button class="cds-AccordionHeader-button" aria-controls="m2p"><div>Module 2</div></button>' +
+      '<div id="m2p"><ul>' +
+        '<li><a href="/learn/x/discussionPrompt/d1/services"><div class="outline-single-item-content-wrapper"><div><div>Discuss</div><div>Discussion Prompt</div></div></div></a></li>' +
+        '<li><a href="/learn/x/quiz/q1/wk2"><div class="outline-single-item-content-wrapper"><div><div>Q2</div><div>Quiz</div></div></div></a></li>' +
+        '<li><a href="/learn/x/lecture/v2/two"><div class="outline-single-item-content-wrapper"><div><div>Two</div><div>Video</div></div></div></a></li>' +
+      '</ul></div>' +
+    '</div>';
+  const j = makePage(html, 'https://www.coursera.org/learn/x/lecture/v1/intro');
+  const storage = fakeStorage();
+  const handlers = mkFakeHandlers();
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    nowFn: function () { return 1_000_000; }, tabKey: 'tab-1', rng: seededRng(1),
+    sessionStorage: fakeSessionStorage(),
+    navigate: function () { return Promise.resolve(); },
+    sidebar: { setAutopilotStatus: function () {}, appendAutopilotLog: function () {}, setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; } },
+    navigateUrlChangeTimeoutMs: 10,
+  });
+  await ap.startAllModules();
+  const got = await new Promise(function (r) { storage.get([stateMod.RUN_KEY], function (g) { r(g[stateMod.RUN_KEY]); }); });
+  assert.deepEqual(got.queue.map(function (it) { return it.id; }), ['v1', 'v2'], 'discussion + quiz should be filtered out');
+});
