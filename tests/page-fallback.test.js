@@ -1,0 +1,82 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { JSDOM } = require('jsdom');
+const pageFallback = require('../lib/page-fallback.js');
+
+function dom(html, url) {
+  return new JSDOM(
+    '<!doctype html><html><body>' + html + '</body></html>',
+    { url: url || 'https://www.coursera.org/learn/test/lecture/v1/x' }
+  ).window.document;
+}
+
+test('findMarkCompleteButton: button with plain text "Mark as completed"', () => {
+  const d = dom('<button>Mark as completed</button>');
+  const btn = pageFallback.findMarkCompleteButton(d);
+  assert.ok(btn);
+  assert.equal(btn.tagName, 'BUTTON');
+});
+
+test('findMarkCompleteButton: span.cds-button-label inside a button → returns the closest button', () => {
+  const d = dom('<button class="cds-button-primary"><span class="cds-button-label">Mark as completed</span></button>');
+  const btn = pageFallback.findMarkCompleteButton(d);
+  assert.ok(btn);
+  assert.equal(btn.tagName, 'BUTTON');
+});
+
+test('findMarkCompleteButton: accepts variants "Mark complete", "Complete", "Completed"', () => {
+  assert.ok(pageFallback.findMarkCompleteButton(dom('<button>Mark complete</button>')));
+  assert.ok(pageFallback.findMarkCompleteButton(dom('<button>Complete</button>')));
+  assert.ok(pageFallback.findMarkCompleteButton(dom('<button>Completed</button>')));
+});
+
+test('findMarkCompleteButton: returns null when no matching button exists', () => {
+  assert.equal(pageFallback.findMarkCompleteButton(dom('<button>Save</button>')), null);
+});
+
+test('findGoToNextItemButton: matches "Go to next item" exactly', () => {
+  const d = dom('<button>Go to next item</button>');
+  const btn = pageFallback.findGoToNextItemButton(d);
+  assert.ok(btn);
+});
+
+test('findGoToNextItemButton: matches "Next item" and "Continue"', () => {
+  assert.ok(pageFallback.findGoToNextItemButton(dom('<a href="#">Next item</a>')));
+  assert.ok(pageFallback.findGoToNextItemButton(dom('<button>Continue</button>')));
+});
+
+test('findGoToNextItemButton: returns null when none present', () => {
+  assert.equal(pageFallback.findGoToNextItemButton(dom('<button>Save</button>')), null);
+});
+
+test('findTopProgressText: matches "0/3 learning items" anywhere visible', () => {
+  const d = dom('<div><span>Hello</span><span>0/3 learning items</span></div>');
+  const el = pageFallback.findTopProgressText(d);
+  assert.ok(el);
+  assert.equal(el.textContent.trim(), '0/3 learning items');
+});
+
+test('parseProgress: splits "0/3 learning items" into {completed:0, total:3}', () => {
+  assert.deepEqual(pageFallback.parseProgress('0/3 learning items'), { completed: 0, total: 3, raw: '0/3 learning items' });
+  assert.deepEqual(pageFallback.parseProgress('5/12 learning items'), { completed: 5, total: 12, raw: '5/12 learning items' });
+  assert.equal(pageFallback.parseProgress('not a progress string'), null);
+  assert.equal(pageFallback.parseProgress(''), null);
+});
+
+test('findAgreementCheckbox: returns input#agreement-checkbox-base when present', () => {
+  const d = dom('<form><input id="agreement-checkbox-base" type="checkbox"></form>');
+  const cb = pageFallback.findAgreementCheckbox(d);
+  assert.ok(cb);
+  assert.equal(cb.id, 'agreement-checkbox-base');
+});
+
+test('findAgreementCheckbox: falls back to checkbox whose label mentions "agree"', () => {
+  const d = dom('<label for="cb1">I agree to the terms</label><input id="cb1" type="checkbox">');
+  const cb = pageFallback.findAgreementCheckbox(d);
+  assert.ok(cb);
+  assert.equal(cb.id, 'cb1');
+});
+
+test('findAgreementCheckbox: returns null when no agreement-style checkbox exists', () => {
+  assert.equal(pageFallback.findAgreementCheckbox(dom('<input type="text">')), null);
+});

@@ -28,6 +28,7 @@
         "lib/discussion-replies.js",
         "lib/autopilot-state.js",
         "lib/module-scraper.js",
+        "lib/page-fallback.js",
         "lib/item-handlers.js",
         "lib/completion-confirmer.js",
         "lib/module-autopilot.js",
