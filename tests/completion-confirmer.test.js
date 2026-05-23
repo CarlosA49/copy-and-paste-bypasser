@@ -102,3 +102,26 @@ test('createConfirmer exports the defaults', () => {
   assert.equal(typeof DEFAULT_POLL_INTERVAL_MS, 'number');
   assert.ok(DEFAULT_TIMEOUT_MS >= 30000 && DEFAULT_TIMEOUT_MS <= 60000);
 });
+
+test('waitForCompletion: top-progress count increase counts as confirmation', async () => {
+  const { JSDOM } = require('jsdom');
+  const j = new JSDOM('<!doctype html><html><body><div data-prog>0/3 learning items</div></body></html>');
+  const doc = j.window.document;
+  const scraper = {
+    findItemCompletionIndicator: function () { return null; },
+  };
+  const pageFallback = require('../lib/page-fallback.js');
+  let polls = 0;
+  const sleep = function () {
+    polls += 1;
+    if (polls === 2) doc.querySelector('[data-prog]').textContent = '1/3 learning items';
+    return Promise.resolve();
+  };
+  const confirmer = require('../lib/completion-confirmer.js').createConfirmer({ sleep: sleep });
+  const r = await confirmer.waitForCompletion({
+    doc: doc, itemId: 'v1', scraper: scraper,
+    pageFallback: pageFallback,
+    timeoutMs: 60000, pollIntervalMs: 1,
+  });
+  assert.equal(r, true);
+});
