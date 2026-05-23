@@ -618,3 +618,62 @@ test('extractItemsFromPanel marks items completed when aria-label="Completed" in
   assert.equal(items[0].completed, true);
   assert.equal(items[1].completed, false);
 });
+
+// ── Task 5: scrapeModuleByAccordion ──────────────────────────────────────────
+const FULL_ACCORDION_HTML =
+  '<div>' +
+    '<button class="cds-AccordionHeader-button" aria-controls="m1p" aria-expanded="false">' +
+      '<div>Module 1</div><div>Course Pages</div>' +
+    '</button>' +
+    '<div id="m1p">' +
+      '<ul>' +
+        '<li><a href="/learn/matlab/lecture/v1/course-preview">' +
+          '<div class="outline-single-item-content-wrapper"><div><div>Course Preview</div><div>Video. Duration: 2 min</div></div></div>' +
+        '</a></li>' +
+        '<li><a href="/learn/matlab/supplement/r1/syllabus">' +
+          '<div class="outline-single-item-content-wrapper"><div><div>Syllabus</div><div>Reading. Duration: 10 min</div></div></div>' +
+        '</a></li>' +
+      '</ul>' +
+    '</div>' +
+    '<button class="cds-AccordionHeader-button" aria-controls="m2p" aria-expanded="true">' +
+      '<div>Module 2</div><div>The MATLAB Environment</div>' +
+    '</button>' +
+    '<div id="m2p">' +
+      '<ul>' +
+        '<li><a href="/learn/matlab/lecture/v2/intro">' +
+          '<div class="outline-single-item-content-wrapper"><div><div>Intro to MATLAB</div><div>Video. Duration: 5 min</div></div></div>' +
+        '</a></li>' +
+      '</ul>' +
+    '</div>' +
+  '</div>';
+
+test('scrapeModule (accordion layer) finds items when no Layer-1 container matches but accordion headers do', () => {
+  const d = dom(FULL_ACCORDION_HTML, 'https://www.coursera.org/learn/matlab/supplement/r1/syllabus');
+  const r = scrapeModule(d);
+  assert.equal(r.items.length, 2, 'Module 1 (where current item Syllabus is) has 2 items');
+  assert.equal(r.items[0].id, 'v1');
+  assert.equal(r.items[0].title, 'Course Preview');
+  assert.equal(r.items[0].kind, 'video');
+  assert.equal(r.items[1].id, 'r1');
+  assert.equal(r.items[1].kind, 'reading');
+});
+
+test('scrapeModule (accordion layer) picks the expanded module when current URL is not in any panel', () => {
+  const d = dom(FULL_ACCORDION_HTML, 'https://www.coursera.org/learn/matlab/home/welcome');
+  const r = scrapeModule(d);
+  assert.equal(r.items.length, 1);
+  assert.equal(r.items[0].id, 'v2');
+  assert.equal(r.items[0].title, 'Intro to MATLAB');
+});
+
+test('scrapeModule (accordion layer) coexists with Layer 1: legacy lesson-collection still works', () => {
+  const d = dom(
+    '<div data-testid="lesson-collection">' +
+      '<a href="/learn/test-course/lecture/v1/intro">Intro Video</a>' +
+    '</div>',
+    'https://www.coursera.org/learn/test-course/lecture/v1/intro'
+  );
+  const r = scrapeModule(d);
+  assert.equal(r.items.length, 1);
+  assert.equal(r.items[0].id, 'v1');
+});
