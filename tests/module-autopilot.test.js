@@ -859,6 +859,37 @@ test('start: when all items are complete or blocked, shows "Module already compl
   assert.equal(navTargets.length, 0);
 });
 
+test('startAllModules: builds course-wide queue across modules, skipping blocked items', async () => {
+  const html =
+    '<div>' +
+      '<button class="cds-AccordionHeader-button" aria-controls="m1p"><div>Module 1</div></button>' +
+      '<div id="m1p"><ul>' +
+        '<li><a href="/learn/x/lecture/v1/intro"><div class="outline-single-item-content-wrapper"><div><div>Intro</div><div>Video. 2 min</div></div></div></a></li>' +
+        '<li><a href="/learn/x/quiz/q1/wk1"><div class="outline-single-item-content-wrapper"><div><div>Q1</div><div>Quiz. 30 min</div></div></div></a></li>' +
+      '</ul></div>' +
+      '<button class="cds-AccordionHeader-button" aria-controls="m2p"><div>Module 2</div></button>' +
+      '<div id="m2p"><ul>' +
+        '<li><a href="/learn/x/lecture/v2/m2"><div class="outline-single-item-content-wrapper"><div><div>M2</div><div>Video. 5 min</div></div></div></a></li>' +
+      '</ul></div>' +
+    '</div>';
+  const j = makePage(html, 'https://www.coursera.org/learn/x/lecture/v1/intro');
+  const storage = fakeStorage();
+  const handlers = mkFakeHandlers();
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    nowFn: function () { return 1_000_000; }, tabKey: 'tab-1', rng: seededRng(1),
+    sessionStorage: fakeSessionStorage(),
+    navigate: function () { return Promise.resolve(); },
+    sidebar: { setAutopilotStatus: function () {}, appendAutopilotLog: function () {}, setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; } },
+  });
+  await ap.startAllModules();
+  const got = await new Promise(function (r) { storage.get([stateMod.RUN_KEY], function (g) { r(g[stateMod.RUN_KEY]); }); });
+  assert.equal(got.queue.length, 2, 'q1 is blocked; only v1 + v2 remain');
+  assert.equal(got.queue[0].id, 'v1');
+  assert.equal(got.queue[1].id, 'v2');
+  assert.equal(got.runScope, 'course');
+});
+
 test('Fast mode video: primary confirmer timeout is 5s, advances quickly when green icon present', async () => {
   const html =
     '<div data-testid="lesson-collection">' +

@@ -873,3 +873,42 @@ test('isBlockedAssessmentItem: plain readings/videos are NOT blocked', () => {
 test('isBlockedAssessmentItem: discussion is NOT blocked (safe content)', () => {
   assert.equal(isBlockedAssessmentItem({ url: '/learn/x/discussionPrompt/d1/x', title: 'Week 1 Discussion', kind: 'discussion' }), false);
 });
+
+const { scrapeAllModules } = require('../lib/module-scraper.js');
+
+const COURSE_FIXTURE_HTML =
+  '<div>' +
+    '<button class="cds-AccordionHeader-button" aria-controls="m1p"><div>Module 1</div><div>Course Pages</div></button>' +
+    '<div id="m1p">' +
+      '<ul>' +
+        '<li><a href="/learn/x/lecture/v1/intro"><div class="outline-single-item-content-wrapper"><div><div>Intro</div><div>Video. 2 min</div></div></div></a></li>' +
+        '<li><a href="/learn/x/quiz/q1/wk1"><div class="outline-single-item-content-wrapper"><div><div>Week 1 Quiz</div><div>Quiz. 30 min</div></div></div></a></li>' +
+        '<li><a href="/learn/x/supplement/r1/sy"><div class="outline-single-item-content-wrapper"><div><div>Syllabus</div><div>Reading. 10 min</div></div></div></a></li>' +
+      '</ul>' +
+    '</div>' +
+    '<button class="cds-AccordionHeader-button" aria-controls="m2p"><div>Module 2</div><div>The MATLAB Environment</div></button>' +
+    '<div id="m2p">' +
+      '<ul>' +
+        '<li><a href="/learn/x/lecture/v2/m2-intro"><div class="outline-single-item-content-wrapper"><div><div>M2 Intro</div><div>Video. 5 min</div></div></div></a></li>' +
+        '<li><a href="/learn/x/peer/p1/peer-1"><div class="outline-single-item-content-wrapper"><div><div>Peer Review 1</div><div>Peer Review. 2 submissions</div></div></div></a></li>' +
+      '</ul>' +
+    '</div>' +
+  '</div>';
+
+test('scrapeAllModules: returns one entry per module with module items in DOM order', () => {
+  const d = dom(COURSE_FIXTURE_HTML, 'https://www.coursera.org/learn/x/lecture/v1/intro');
+  const r = scrapeAllModules(d);
+  assert.equal(r.modules.length, 2);
+  assert.equal(r.modules[0].items.length, 3);
+  assert.equal(r.modules[1].items.length, 2);
+  assert.ok(/Module 1/.test(r.modules[0].headerText));
+  assert.ok(/Module 2/.test(r.modules[1].headerText));
+});
+
+test('scrapeAllModules: each module is paired to its accordion panel via aria-controls', () => {
+  const d = dom(COURSE_FIXTURE_HTML, 'https://www.coursera.org/learn/x/lecture/v1/intro');
+  const r = scrapeAllModules(d);
+  assert.equal(r.modules[0].items[0].id, 'v1');
+  assert.equal(r.modules[0].items[1].id, 'q1');
+  assert.equal(r.modules[1].items[0].id, 'v2');
+});
