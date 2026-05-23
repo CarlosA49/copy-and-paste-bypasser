@@ -241,7 +241,7 @@ test('video handler (short video): plays through, waits for ended, post-end dwel
   assert.ok(sleeps.length >= 1, 'should have post-end dwell');
 });
 
-test('video handler (long video): seeks to targetTime then waits for ended', async () => {
+test('video handler (long video): seeks immediately to ~1 min before end, no pre-skip dwell', async () => {
   const doc = new (require('jsdom').JSDOM)(
     '<!doctype html><body><video></video></body>',
     { url: 'https://www.coursera.org/learn/x/lecture/v2/long' }
@@ -257,7 +257,8 @@ test('video handler (long video): seeks to targetTime then waits for ended', asy
   v.play = function () { v.paused = false; };
   v.pause = function () { v.paused = true; };
 
-  const sleep = function () { return Promise.resolve(); };
+  const sleeps = [];
+  const sleep = function (ms) { sleeps.push(ms); return Promise.resolve(); };
   const scroll = function () { return Promise.resolve(); };
   const handlers = require('../lib/item-handlers.js').createHandlers({
     sleep: sleep,
@@ -269,31 +270,31 @@ test('video handler (long video): seeks to targetTime then waits for ended', asy
   const p = handlers.video({ doc: doc, item: { id: 'v2', kind: 'video' }, rng: seededRng(2), signal: sig });
   await new Promise(function (r) { setTimeout(r, 0); });
   assert.ok(seekedTo !== null, 'currentTime should have been set');
+  // Seek target is duration(600) - seekFromEnd(50..70) = 530..550.
+  assert.ok(seekedTo >= 530 && seekedTo <= 550,
+    'seekedTo ' + seekedTo + ' should be in [530, 550]');
   v.dispatchEvent(new doc.defaultView.Event('ended'));
   const out = await p;
   assert.equal(out.outcome, 'video-done');
   assert.equal(out.mode, 'seek');
-  assert.ok(seekedTo >= 480 && seekedTo <= 540,
-    'seekedTo ' + seekedTo + ' should be in [480, 540]');
+  // Only the post-end dwell should have been awaited — no pre-skip sleep.
+  assert.equal(sleeps.length, 1, 'only post-end sleep, no pre-skip');
+  assert.ok(sleeps[0] >= 5000 && sleeps[0] <= 10000, 'post-end dwell in [5000, 10000] ms');
 });
 
-test('video handler: aborts mid-flight on signal abort', async () => {
+test('video handler: aborts mid-flight on signal abort (during ended wait)', async () => {
+  // After the seek, the handler awaits the `ended` event via waitForEvent,
+  // which honors abort. Trigger abort during that wait and confirm rejection.
   const doc = new (require('jsdom').JSDOM)(
     '<!doctype html><body><video></video></body>'
   ).window.document;
   const v = doc.querySelector('video');
   Object.defineProperty(v, 'duration', { configurable: true, get: function () { return 600; } });
   Object.defineProperty(v, 'currentTime', { configurable: true, get: function () { return 0; }, set: function () {} });
-  v.play = function () {};
+  v.play = function () { return Promise.resolve(); };
   v.pause = function () {};
 
-  const sleep = function (ms, signal) {
-    return new Promise(function (resolve, reject) {
-      if (signal && signal.addEventListener) {
-        signal.addEventListener('abort', function () { reject(new Error('aborted')); });
-      }
-    });
-  };
+  const sleep = function () { return Promise.resolve(); };
   const handlers = require('../lib/item-handlers.js').createHandlers({
     sleep: sleep,
     jitteredScroll: function () { return Promise.resolve(); },
