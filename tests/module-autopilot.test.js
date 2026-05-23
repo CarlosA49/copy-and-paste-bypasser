@@ -930,3 +930,38 @@ test('Fast mode video: primary confirmer timeout is 5s, advances quickly when gr
   const after = await new Promise(function (r) { storage.get([stateMod.RUN_KEY], function (g) { r(g[stateMod.RUN_KEY]); }); });
   assert.equal(after.cursor, 1);
 });
+
+test('SPA: after pushState changes URL, autopilot re-enters bootIfRunning and runs the next item', async () => {
+  const j = makePage(MODULE_HTML, 'https://www.coursera.org/learn/x/lecture/v1/intro');
+  const storage = fakeStorage();
+  const d = stateMod.defaults();
+  d.status = 'running';
+  d.courseId = 'x';
+  d.queue = [
+    { id: 'v1', kind: 'video', url: '/learn/x/lecture/v1/intro', title: 'Intro' },
+    { id: 'r1', kind: 'reading', url: '/learn/x/supplement/r1/reading', title: 'R' },
+  ];
+  d.cursor = 0;
+  d.ownerTabKey = 'tab-1';
+  d.heartbeatAt = 1_000_000;
+  await new Promise(function (r) { const it = {}; it[stateMod.RUN_KEY] = d; storage.set(it, r); });
+  const handlers = mkFakeHandlers();
+  let runs = 0;
+  const baseVideo = handlers.video;
+  handlers.video = function (ctx) { runs += 1; return baseVideo(ctx); };
+  const confirmer = { waitForCompletion: function () { return Promise.resolve(true); } };
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    confirmer: confirmer,
+    nowFn: function () { return 1_000_000; }, tabKey: 'tab-1', rng: seededRng(1),
+    sessionStorage: fakeSessionStorage(),
+    navigate: function () { return Promise.resolve(); },
+    sidebar: { setAutopilotStatus: function () {}, appendAutopilotLog: function () {}, setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; } },
+  });
+  await ap.bootIfRunning();
+  assert.equal(runs, 1, 'video handler ran once');
+  j.window.history.pushState({}, '', '/learn/x/supplement/r1/reading');
+  await Promise.resolve();
+  await new Promise(function (r) { setTimeout(r, 0); });
+  assert.equal(handlers.calls.find(function (c) { return c.kind === 'reading'; }) ? true : false, true);
+});
