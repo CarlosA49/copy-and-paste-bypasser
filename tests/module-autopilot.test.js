@@ -593,3 +593,37 @@ test('bootIfRunning: same-tab reload (persisted tabKey == ownerTabKey) reclaims 
   assert.equal(handlers.calls.length, 1);
   assert.equal(banner, '', 'should NOT show a foreign-active banner');
 });
+
+test('bootIfRunning: stale-heartbeat foreign owner is auto-taken-over', async () => {
+  const j = makePage(MODULE_HTML, 'https://www.coursera.org/learn/x/lecture/v1/intro');
+  const storage = fakeStorage();
+  const d = stateMod.defaults();
+  d.status = 'running';
+  d.courseId = 'x';
+  d.queue = [
+    { id: 'v1', kind: 'video', url: '/learn/x/lecture/v1/intro', title: 'Intro' },
+    { id: 'v2', kind: 'video', url: '/learn/x/lecture/v2/outro', title: 'Outro' },
+  ];
+  d.ownerTabKey = 'tab-dead';
+  d.heartbeatAt = 1_000_000 - (stateMod.HEARTBEAT_TTL_MS + 5000); // stale
+  await new Promise(function (r) { const it = {}; it[stateMod.RUN_KEY] = d; storage.set(it, r); });
+  const handlers = mkFakeHandlers();
+  let banner = '';
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    nowFn: function () { return 1_000_000; }, tabKey: 'tab-fresh', rng: seededRng(1),
+    sessionStorage: fakeSessionStorage(),
+    navigate: function () { return Promise.resolve(); },
+    sidebar: {
+      setAutopilotStatus: function () {}, appendAutopilotLog: function () {},
+      setAutopilotPaused: function (paused, text) { banner = text || banner; },
+      setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; },
+    },
+  });
+  const ran = await ap.bootIfRunning();
+  assert.equal(ran, true, 'stale heartbeat should be taken over');
+  assert.equal(handlers.calls.length, 1, 'handler should run after takeover');
+  assert.equal(banner, '', 'should NOT show a foreign-active banner after takeover');
+  const after = await new Promise(function (r) { storage.get([stateMod.RUN_KEY], function (g) { r(g[stateMod.RUN_KEY]); }); });
+  assert.equal(after.ownerTabKey, 'tab-fresh', 'ownership should be with tab-fresh after takeover');
+});
