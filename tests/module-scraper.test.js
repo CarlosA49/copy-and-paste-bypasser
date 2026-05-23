@@ -331,3 +331,13 @@ test('drawer: findItemCompletionIndicator works for the new drawer markup', () =
   const el = findItemCompletionIndicator(d, 'r1');
   assert.ok(el, 'should find the completion indicator for the syllabus row');
 });
+
+test('findItemCompletionIndicator returns null when only "Not completed" indicator is present', () => {
+  const d = dom(
+    '<div data-testid="lesson-collection">' +
+      '<a href="/learn/test-course/lecture/v1/x">A<span aria-label="Not completed"></span></a>' +
+    '</div>'
+  );
+  assert.equal(findItemCompletionIndicator(d, 'v1'), null,
+    '"Not completed" must not be treated as a completion indicator');
+});
