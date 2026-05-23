@@ -360,3 +360,126 @@ test('video handler: returns video-autoplay-blocked when v.play() rejects and en
   const out = await handlers.video({ doc: doc, item: { id: 'v', kind: 'video' }, rng: seededRng(1), signal: sig });
   assert.equal(out.outcome, 'video-autoplay-blocked');
 });
+
+test('fallback handler: pauses when no answer text available', async () => {
+  const doc = new (require('jsdom').JSDOM)(
+    '<!doctype html><body><div data-testid="quiz">Quiz body</div></body>',
+    { url: 'https://www.coursera.org/learn/x/quiz/q1' }
+  ).window.document;
+  const sleep = function () { return Promise.resolve(); };
+  const handlers = require('../lib/item-handlers.js').createHandlers({
+    sleep: sleep,
+    jitteredScroll: function () { return Promise.resolve(); },
+    timing: require('../lib/autopilot-timing.js'),
+    replies: require('../lib/discussion-replies.js'),
+    answerApplier: { applyAnswers: function () { return { selected: 0, filled: 0 }; } },
+  });
+  const out = await handlers.fallback({
+    doc: doc, item: { id: 'q1', kind: 'quiz' },
+    rng: seededRng(1), signal: { aborted: false, addEventListener: function () {} },
+    getAnswerText: function () { return ''; },
+    getLastCleanedCopy: function () { return null; },
+    autoSubmitQuizzes: false,
+  });
+  assert.equal(out.outcome, 'pause-needed-no-answer');
+});
+
+test('fallback handler: applies answer and resolves when something fills', async () => {
+  const doc = new (require('jsdom').JSDOM)(
+    '<!doctype html><body><div data-testid="quiz">Quiz body</div></body>'
+  ).window.document;
+  const calls = [];
+  const handlers = require('../lib/item-handlers.js').createHandlers({
+    sleep: function () { return Promise.resolve(); },
+    jitteredScroll: function () { return Promise.resolve(); },
+    timing: require('../lib/autopilot-timing.js'),
+    replies: require('../lib/discussion-replies.js'),
+    answerApplier: {
+      applyAnswers: function (raw, body, opts) {
+        calls.push({ raw: raw, hasBody: !!body, opts: opts });
+        return { selected: 2, filled: 0 };
+      },
+    },
+  });
+  const out = await handlers.fallback({
+    doc: doc, item: { id: 'q1', kind: 'quiz' },
+    rng: seededRng(1), signal: { aborted: false, addEventListener: function () {} },
+    getAnswerText: function () { return 'A and C'; },
+    getLastCleanedCopy: function () { return null; },
+    autoSubmitQuizzes: false,
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].raw, 'A and C');
+  assert.equal(out.outcome, 'quiz-filled-paused-for-review');
+});
+
+test('fallback handler: uses lastCleanedCopy when sidebar text is empty', async () => {
+  const doc = new (require('jsdom').JSDOM)(
+    '<!doctype html><body><div data-testid="quiz">Quiz body</div></body>'
+  ).window.document;
+  let usedRaw = null;
+  const handlers = require('../lib/item-handlers.js').createHandlers({
+    sleep: function () { return Promise.resolve(); },
+    jitteredScroll: function () { return Promise.resolve(); },
+    timing: require('../lib/autopilot-timing.js'),
+    replies: require('../lib/discussion-replies.js'),
+    answerApplier: { applyAnswers: function (raw) { usedRaw = raw; return { selected: 1, filled: 0 }; } },
+  });
+  const out = await handlers.fallback({
+    doc: doc, item: { id: 'q1', kind: 'quiz' },
+    rng: seededRng(1), signal: { aborted: false, addEventListener: function () {} },
+    getAnswerText: function () { return ''; },
+    getLastCleanedCopy: function () { return 'fallback copy text'; },
+    autoSubmitQuizzes: false,
+  });
+  assert.equal(usedRaw, 'fallback copy text');
+  assert.equal(out.outcome, 'quiz-filled-paused-for-review');
+});
+
+test('fallback handler: clicks submit when autoSubmitQuizzes ON and applier filled something', async () => {
+  const doc = new (require('jsdom').JSDOM)(
+    '<!doctype html><body><div data-testid="quiz">Quiz</div>' +
+    '<button type="submit" data-testid="submit">Submit</button></body>'
+  ).window.document;
+  const submitBtn = doc.querySelector('[data-testid="submit"]');
+  let submitClicked = false;
+  submitBtn.click = function () { submitClicked = true; };
+
+  const handlers = require('../lib/item-handlers.js').createHandlers({
+    sleep: function () { return Promise.resolve(); },
+    jitteredScroll: function () { return Promise.resolve(); },
+    timing: require('../lib/autopilot-timing.js'),
+    replies: require('../lib/discussion-replies.js'),
+    answerApplier: { applyAnswers: function () { return { selected: 1, filled: 0 }; } },
+  });
+  const out = await handlers.fallback({
+    doc: doc, item: { id: 'q1', kind: 'quiz' },
+    rng: seededRng(1), signal: { aborted: false, addEventListener: function () {} },
+    getAnswerText: function () { return 'A'; },
+    getLastCleanedCopy: function () { return null; },
+    autoSubmitQuizzes: true,
+  });
+  assert.equal(submitClicked, true);
+  assert.equal(out.outcome, 'quiz-submitted');
+});
+
+test('fallback handler: pauses when applier returns selected=0 filled=0', async () => {
+  const doc = new (require('jsdom').JSDOM)(
+    '<!doctype html><body><div data-testid="quiz">Quiz</div></body>'
+  ).window.document;
+  const handlers = require('../lib/item-handlers.js').createHandlers({
+    sleep: function () { return Promise.resolve(); },
+    jitteredScroll: function () { return Promise.resolve(); },
+    timing: require('../lib/autopilot-timing.js'),
+    replies: require('../lib/discussion-replies.js'),
+    answerApplier: { applyAnswers: function () { return { selected: 0, filled: 0 }; } },
+  });
+  const out = await handlers.fallback({
+    doc: doc, item: { id: 'q1', kind: 'quiz' },
+    rng: seededRng(1), signal: { aborted: false, addEventListener: function () {} },
+    getAnswerText: function () { return 'no match'; },
+    getLastCleanedCopy: function () { return null; },
+    autoSubmitQuizzes: true,
+  });
+  assert.equal(out.outcome, 'pause-needed-no-match');
+});
