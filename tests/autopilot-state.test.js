@@ -193,6 +193,30 @@ test('exports RUN_KEY, COURSE_LOG_KEY, HEARTBEAT_TTL_MS', () => {
   assert.equal(typeof HEARTBEAT_TTL_MS, 'number');
 });
 
+test('defaults().settings includes behaviorMode="fast" and runScope="module"', () => {
+  const d = require('../lib/autopilot-state.js').defaults();
+  assert.equal(d.settings.behaviorMode, 'fast');
+  assert.equal(d.settings.runScope, 'module');
+});
+
+test('state.update merges settings.behaviorMode preserving other settings', (t, done) => {
+  const stateMod = require('../lib/autopilot-state.js');
+  const store = {};
+  const storage = {
+    get: function (keys, cb) { const out = {}; keys.forEach(function (k) { out[k] = store[k]; }); cb(out); },
+    set: function (items, cb) { Object.assign(store, items); cb && cb(); },
+  };
+  const s = stateMod.createState(storage);
+  s.update({ settings: { behaviorMode: 'human' } }, function () {
+    s.load(function (cur) {
+      assert.equal(cur.settings.behaviorMode, 'human');
+      assert.equal(cur.settings.pauseOnUserInput, true); // unchanged default
+      assert.equal(cur.settings.runScope, 'module');
+      done();
+    });
+  });
+});
+
 test('load shallow-merges newer default fields into older saved state', async () => {
   const fake = fakeStorage();
   // Simulate an older stored blob that's missing several fields added later
