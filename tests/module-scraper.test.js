@@ -112,3 +112,45 @@ test('scrapeModule moduleId reflects /home/week/<n> when present', () => {
   const r = scrapeModule(d);
   assert.equal(r.moduleId, 'week-4');
 });
+
+const { findItemCompletionIndicator } = require('../lib/module-scraper.js');
+
+test('findItemCompletionIndicator returns the indicator element when the item is completed', () => {
+  const d = dom(
+    '<div data-testid="lesson-collection">' +
+      '<a href="/learn/test-course/lecture/v1/x">A<span aria-label="Completed"></span></a>' +
+      '<a href="/learn/test-course/lecture/v2/y">B</a>' +
+    '</div>'
+  );
+  const el = findItemCompletionIndicator(d, 'v1');
+  assert.ok(el, 'should return the completion indicator element for v1');
+  assert.equal(el.getAttribute('aria-label'), 'Completed');
+});
+
+test('findItemCompletionIndicator returns null when the item is not completed', () => {
+  const d = dom(
+    '<div data-testid="lesson-collection">' +
+      '<a href="/learn/test-course/lecture/v1/x">A</a>' +
+    '</div>'
+  );
+  assert.equal(findItemCompletionIndicator(d, 'v1'), null);
+});
+
+test('findItemCompletionIndicator returns null when the item is not in the sidebar at all', () => {
+  const d = dom(
+    '<div data-testid="lesson-collection">' +
+      '<a href="/learn/test-course/lecture/v1/x">A<span aria-label="Completed"></span></a>' +
+    '</div>'
+  );
+  assert.equal(findItemCompletionIndicator(d, 'v999'), null);
+});
+
+test('findItemCompletionIndicator works with the rc-Completed class fallback selector', () => {
+  const d = dom(
+    '<div data-testid="lesson-collection">' +
+      '<a href="/learn/test-course/lecture/v1/x">A<span class="rc-Completed"></span></a>' +
+    '</div>'
+  );
+  const el = findItemCompletionIndicator(d, 'v1');
+  assert.ok(el);
+});
