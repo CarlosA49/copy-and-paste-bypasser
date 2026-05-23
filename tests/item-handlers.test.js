@@ -557,3 +557,42 @@ test('video handler: when direct currentTime write does not stick, falls back to
   assert.equal(r.outcome, 'video-done');
   assert.ok(fwdClicks > 0, 'forward seek button should have been clicked');
 });
+
+test('assignment handler: ticks agreement checkbox and dispatches input+change, then pauses', async () => {
+  const { JSDOM } = require('jsdom');
+  const j = new JSDOM(
+    '<!doctype html><html><body>' +
+      '<input id="agreement-checkbox-base" type="checkbox">' +
+    '</body></html>'
+  );
+  const doc = j.window.document;
+  const cb = doc.querySelector('#agreement-checkbox-base');
+  let events = [];
+  cb.addEventListener('input', function () { events.push('input'); });
+  cb.addEventListener('change', function () { events.push('change'); });
+  const handlers = require('../lib/item-handlers.js').createHandlers({
+    timing: require('../lib/autopilot-timing.js'),
+    sleep: function () { return Promise.resolve(); },
+    jitteredScroll: function () { return Promise.resolve(); },
+    pageFallback: require('../lib/page-fallback.js'),
+  });
+  const ctx = { doc: doc, item: { id: 'x', kind: 'quiz', url: '/learn/x/gradedLti/X7rOE/assignment-x' }, rng: function () { return 0.5; }, signal: { aborted: false, addEventListener: function () {} } };
+  const r = await handlers.assignment(ctx);
+  assert.equal(cb.checked, true);
+  assert.deepEqual(events.sort(), ['change', 'input']);
+  assert.equal(r.outcome, 'assignment-agreement-accepted-paused');
+});
+
+test('assignment handler: when no agreement checkbox is present, pauses with no-action outcome', async () => {
+  const { JSDOM } = require('jsdom');
+  const j = new JSDOM('<!doctype html><html><body><div>no checkbox</div></body></html>');
+  const handlers = require('../lib/item-handlers.js').createHandlers({
+    timing: require('../lib/autopilot-timing.js'),
+    sleep: function () { return Promise.resolve(); },
+    jitteredScroll: function () { return Promise.resolve(); },
+    pageFallback: require('../lib/page-fallback.js'),
+  });
+  const ctx = { doc: j.window.document, item: { id: 'x', kind: 'quiz', url: '/learn/x/gradedLti/X7rOE/assignment-x' }, rng: function () { return 0.5; }, signal: { aborted: false, addEventListener: function () {} } };
+  const r = await handlers.assignment(ctx);
+  assert.equal(r.outcome, 'assignment-no-action');
+});

@@ -115,6 +115,7 @@
       typingEngine: a.typingEngine,
       typingInjector: a.typingInjector,
       answerApplier: a.answerApplier || null,
+      pageFallback: a.pageFallback || null,
     });
     // Expose the generic Mark-complete fallback on handlers so the controller
     // can invoke it without re-resolving the module.
