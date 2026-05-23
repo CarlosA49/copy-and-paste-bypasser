@@ -627,3 +627,34 @@ test('bootIfRunning: stale-heartbeat foreign owner is auto-taken-over', async ()
   const after = await new Promise(function (r) { storage.get([stateMod.RUN_KEY], function (g) { r(g[stateMod.RUN_KEY]); }); });
   assert.equal(after.ownerTabKey, 'tab-fresh', 'ownership should be with tab-fresh after takeover');
 });
+
+test('bootIfRunning: foreign-active fires ONLY when stored ownerTabKey differs from persisted tabKey', async () => {
+  const j = makePage(MODULE_HTML, 'https://www.coursera.org/learn/x/lecture/v1/intro');
+  const storage = fakeStorage();
+  const d = stateMod.defaults();
+  d.status = 'running';
+  d.courseId = 'x';
+  d.queue = [{ id: 'v1', kind: 'video', url: '/learn/x/lecture/v1/intro', title: 'Intro' }];
+  d.ownerTabKey = 'tab-other';
+  d.heartbeatAt = 1_000_000 - 1000; // fresh
+  await new Promise(function (r) { const it = {}; it[stateMod.RUN_KEY] = d; storage.set(it, r); });
+  const ss = fakeSessionStorage();
+  ss.setItem('ccp_autopilot_tabkey', 'tab-mine');
+  let banner = '';
+  const handlers = mkFakeHandlers();
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    nowFn: function () { return 1_000_000; }, rng: seededRng(1), sessionStorage: ss,
+    navigate: function () { return Promise.resolve(); },
+    sidebar: {
+      setAutopilotStatus: function () {}, appendAutopilotLog: function () {},
+      setAutopilotPaused: function (paused, text) { banner = text || banner; },
+      setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; },
+    },
+  });
+  const ran = await ap.bootIfRunning();
+  assert.equal(ran, false, 'should NOT take over a fresh other tab');
+  assert.equal(handlers.calls.length, 0);
+  assert.ok(banner.length > 0, 'should show foreign-active banner');
+  assert.ok(/another tab/i.test(banner), 'banner mentions another tab');
+});
