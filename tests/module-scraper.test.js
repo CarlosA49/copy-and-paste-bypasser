@@ -454,3 +454,59 @@ test('parseRowText returns kind:null and full text as title when no kind keyword
   assert.equal(r.kind, null);
   assert.equal(r.meta, null);
 });
+
+const { findAccordionHeaders } = require('../lib/module-scraper.js');
+
+const CDS_ACCORDION_HTML =
+  '<div>' +
+    '<button class="cds-AccordionHeader-button" aria-controls="panel-1">' +
+      '<div class="cds-AccordionHeader-content">' +
+        '<div class="cds-AccordionHeader-labelGroup">' +
+          '<div>Module 1</div>' +
+        '</div>' +
+        '<div>Course Pages</div>' +
+      '</div>' +
+    '</button>' +
+    '<button class="cds-AccordionHeader-button" aria-controls="panel-2">' +
+      '<div class="cds-AccordionHeader-content">' +
+        '<div class="cds-AccordionHeader-labelGroup">' +
+          '<div>Module 2</div>' +
+        '</div>' +
+        '<div>The MATLAB Environment</div>' +
+      '</div>' +
+    '</button>' +
+  '</div>';
+
+test('findAccordionHeaders locates CDS accordion-header buttons whose text matches Module N', () => {
+  const d = dom(CDS_ACCORDION_HTML);
+  const headers = findAccordionHeaders(d);
+  assert.equal(headers.length, 2);
+  assert.ok(/Module 1/.test(headers[0].textContent));
+  assert.ok(/Module 2/.test(headers[1].textContent));
+});
+
+test('findAccordionHeaders also matches "Week N" and "Lesson N" buttons by visible text', () => {
+  const d = dom(
+    '<div>' +
+      '<button>Week 1Introduction</button>' +
+      '<button>Lesson 3Advanced Topics</button>' +
+      '<button>Not a module header</button>' +
+    '</div>'
+  );
+  const headers = findAccordionHeaders(d);
+  assert.equal(headers.length, 2);
+  assert.ok(/Week 1/.test(headers[0].textContent));
+  assert.ok(/Lesson 3/.test(headers[1].textContent));
+});
+
+test('findAccordionHeaders ignores buttons whose text does not match the module-header pattern', () => {
+  const d = dom(
+    '<div>' +
+      '<button class="cds-AccordionHeader-button">Course Resources</button>' +
+      '<button class="cds-AccordionHeader-button">Module 5Final Review</button>' +
+    '</div>'
+  );
+  const headers = findAccordionHeaders(d);
+  assert.equal(headers.length, 1);
+  assert.ok(/Module 5/.test(headers[0].textContent));
+});
