@@ -931,6 +931,41 @@ test('Fast mode video: primary confirmer timeout is 5s, advances quickly when gr
   assert.equal(after.cursor, 1);
 });
 
+test('navigate fallback: clicks the target row anchor in the outline when URL did not change', async () => {
+  const html =
+    '<a id="target-anchor" href="/learn/x/supplement/r1/reading">Syllabus</a>';
+  const j = makePage(html, 'https://www.coursera.org/learn/x/lecture/v1/intro');
+  const storage = fakeStorage();
+  const d = stateMod.defaults();
+  d.status = 'running';
+  d.courseId = 'x';
+  d.queue = [
+    { id: 'v1', kind: 'video', url: '/learn/x/lecture/v1/intro', title: 'Intro' },
+    { id: 'r1', kind: 'reading', url: '/learn/x/supplement/r1/reading', title: 'R' },
+  ];
+  d.cursor = 0;
+  d.ownerTabKey = 'tab-1';
+  d.heartbeatAt = 1_000_000;
+  await new Promise(function (r) { const it = {}; it[stateMod.RUN_KEY] = d; storage.set(it, r); });
+  let anchorClicked = false;
+  j.window.document.getElementById('target-anchor').addEventListener('click', function () { anchorClicked = true; });
+  const navTargets = [];
+  const handlers = mkFakeHandlers();
+  const confirmer = { waitForCompletion: function () { return Promise.resolve(true); } };
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    confirmer: confirmer,
+    nowFn: function () { return 1_000_000; }, tabKey: 'tab-1', rng: seededRng(1),
+    sessionStorage: fakeSessionStorage(),
+    navigate: function (url) { navTargets.push(url); return Promise.resolve(); },
+    sidebar: { setAutopilotStatus: function () {}, appendAutopilotLog: function () {}, setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; } },
+    navigateUrlChangeTimeoutMs: 50,
+  });
+  await ap.bootIfRunning();
+  await new Promise(function (r) { setTimeout(r, 100); });
+  assert.equal(anchorClicked, true, 'should click the row anchor pointing to the queued URL');
+});
+
 test('SPA: after pushState changes URL, autopilot re-enters bootIfRunning and runs the next item', async () => {
   const j = makePage(MODULE_HTML, 'https://www.coursera.org/learn/x/lecture/v1/intro');
   const storage = fakeStorage();
