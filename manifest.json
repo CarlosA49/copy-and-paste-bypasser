@@ -29,6 +29,7 @@
         "lib/autopilot-state.js",
         "lib/module-scraper.js",
         "lib/item-handlers.js",
+        "lib/completion-confirmer.js",
         "lib/module-autopilot.js",
         "lib/sidebar.js",
         "content.js"

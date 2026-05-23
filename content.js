@@ -77,6 +77,11 @@
       console.warn('[autopilot] disabled: itemHandlers.createHandlers not loaded');
       return;
     }
+    if (!a.completionConfirmer || typeof a.completionConfirmer.createConfirmer !== 'function') {
+      console.warn('[autopilot] disabled: completionConfirmer not loaded');
+      return;
+    }
+    const confirmer = a.completionConfirmer.createConfirmer({});
     const handlers = a.itemHandlers.createHandlers({
       sleep: function (ms, signal) {
         return new Promise(function (resolve, reject) {
@@ -107,12 +112,16 @@
       typingInjector: a.typingInjector,
       answerApplier: a.answerApplier || null,
     });
+    // Expose the generic Mark-complete fallback on handlers so the controller
+    // can invoke it without re-resolving the module.
+    handlers.tryMarkCompleteFallback = a.itemHandlers.tryMarkCompleteFallback;
     _autopilotInstance = a.moduleAutopilot.createAutopilot({
       document: document,
       window: window,
       storage: storage,
       handlers: handlers,
       sidebar: a.sidebar,
+      confirmer: confirmer,
     });
     if (typeof a.sidebar.setAutopilotHandlers === 'function') {
       a.sidebar.setAutopilotHandlers({
