@@ -510,3 +510,41 @@ test('findAccordionHeaders ignores buttons whose text does not match the module-
   assert.equal(headers.length, 1);
   assert.ok(/Module 5/.test(headers[0].textContent));
 });
+
+const { pairHeaderWithPanel } = require('../lib/module-scraper.js');
+
+test('pairHeaderWithPanel uses aria-controls to find the panel', () => {
+  const d = dom(
+    '<div>' +
+      '<button class="cds-AccordionHeader-button" aria-controls="m1-panel">Module 1Intro</button>' +
+      '<div id="m1-panel">' +
+        '<ul><li><a href="/learn/x/lecture/v1/intro">Intro</a></li></ul>' +
+      '</div>' +
+    '</div>'
+  );
+  const header = d.querySelector('button');
+  const panel = pairHeaderWithPanel(header, d);
+  assert.ok(panel);
+  assert.equal(panel.id, 'm1-panel');
+});
+
+test('pairHeaderWithPanel falls back to the next sibling subtree with /learn/ anchors when aria-controls absent', () => {
+  const d = dom(
+    '<div>' +
+      '<button>Module 1Intro</button>' +
+      '<div>' +
+        '<ul><li><a href="/learn/x/lecture/v1/intro">Intro</a></li></ul>' +
+      '</div>' +
+    '</div>'
+  );
+  const header = d.querySelector('button');
+  const panel = pairHeaderWithPanel(header, d);
+  assert.ok(panel, 'should find a panel');
+  assert.ok(panel.querySelector('a[href*="/learn/"]'));
+});
+
+test('pairHeaderWithPanel returns null when no following content has learn anchors', () => {
+  const d = dom('<div><button>Module 1Intro</button><div>nothing here</div></div>');
+  const header = d.querySelector('button');
+  assert.equal(pairHeaderWithPanel(header, d), null);
+});
