@@ -858,3 +858,44 @@ test('start: when all items are complete or blocked, shows "Module already compl
   assert.ok(/already complete|no remaining safe/i.test(status));
   assert.equal(navTargets.length, 0);
 });
+
+test('Fast mode video: primary confirmer timeout is 5s, advances quickly when green icon present', async () => {
+  const html =
+    '<div data-testid="lesson-collection">' +
+      '<a href="/learn/x/lecture/v1/intro"><svg style="color: rgb(39, 106, 26);"><rect/></svg>Intro</a>' +
+      '<a href="/learn/x/supplement/r1/x">R</a>' +
+    '</div>';
+  const j = makePage(html, 'https://www.coursera.org/learn/x/lecture/v1/intro');
+  const storage = fakeStorage();
+  const d = stateMod.defaults();
+  d.status = 'running';
+  d.courseId = 'x';
+  d.queue = [
+    { id: 'v1', kind: 'video', url: '/learn/x/lecture/v1/intro', title: 'Intro' },
+    { id: 'r1', kind: 'reading', url: '/learn/x/supplement/r1/x', title: 'R' },
+  ];
+  d.cursor = 0;
+  d.settings = { behaviorMode: 'fast', pauseOnUserInput: false, autoSubmitQuizzes: false, runScope: 'module' };
+  await new Promise(function (r) { const it = {}; it[stateMod.RUN_KEY] = d; storage.set(it, r); });
+  let primaryTimeoutMs = null;
+  const confirmer = {
+    waitForCompletion: function (opts) {
+      if (primaryTimeoutMs === null) primaryTimeoutMs = opts.timeoutMs;
+      // First call uses fast timeout, returns true (green icon is present).
+      return Promise.resolve(true);
+    },
+  };
+  const handlers = mkFakeHandlers();
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    confirmer: confirmer,
+    nowFn: function () { return 1_000_000; }, tabKey: 'tab-1', rng: seededRng(1),
+    sessionStorage: fakeSessionStorage(),
+    navigate: function () { return Promise.resolve(); },
+    sidebar: { setAutopilotStatus: function () {}, appendAutopilotLog: function () {}, setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; } },
+  });
+  await ap.bootIfRunning();
+  assert.equal(primaryTimeoutMs, 5000, 'Fast-mode video should use 5s primary confirmer timeout');
+  const after = await new Promise(function (r) { storage.get([stateMod.RUN_KEY], function (g) { r(g[stateMod.RUN_KEY]); }); });
+  assert.equal(after.cursor, 1);
+});
