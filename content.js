@@ -60,6 +60,10 @@
   let _autopilotInstance = null;
 
   function startAutopilot() {
+    if (typeof window !== 'undefined' && window.top !== window) {
+      // Only the top frame manages autopilot ownership.
+      return;
+    }
     const a = api();
     if (!a) { console.warn('[autopilot] disabled: window.ClipboardCleaner is missing'); return; }
     if (!a.moduleAutopilot || typeof a.moduleAutopilot.createAutopilot !== 'function') {
