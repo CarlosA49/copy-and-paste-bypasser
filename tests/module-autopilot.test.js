@@ -1047,3 +1047,30 @@ test('confirmer timeout: logs a diagnostics snapshot with item id, kind, current
   assert.ok(/curT=55/.test(diag), 'should include current video time');
   assert.ok(/queue=2/.test(diag), 'should include queue length');
 });
+
+test('start: discussion items log "⏭ Skipped discussion prompt:" with the item title', async () => {
+  const html =
+    '<div data-testid="lesson-collection">' +
+      '<a href="/learn/x/lecture/v1/intro">Intro</a>' +
+      '<a href="/learn/x/discussionPrompt/d1/services">Services Discussion</a>' +
+    '</div>';
+  const j = makePage(html, 'https://www.coursera.org/learn/x/lecture/v1/intro');
+  const storage = fakeStorage();
+  const handlers = mkFakeHandlers();
+  const logs = [];
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    nowFn: function () { return 1_000_000; }, tabKey: 'tab-1', rng: seededRng(1),
+    sessionStorage: fakeSessionStorage(),
+    navigate: function () { return Promise.resolve(); },
+    sidebar: {
+      setAutopilotStatus: function () {}, appendAutopilotLog: function (l) { logs.push(l); },
+      setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; },
+    },
+    navigateUrlChangeTimeoutMs: 10,
+  });
+  await ap.start();
+  const skipLog = logs.find(function (l) { return /Skipped discussion prompt/.test(l); });
+  assert.ok(skipLog, 'should log "Skipped discussion prompt"');
+  assert.ok(/Services Discussion/.test(skipLog), 'should include the item title');
+});
