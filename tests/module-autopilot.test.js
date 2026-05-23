@@ -686,6 +686,39 @@ test('single-page fallback: scrape returns empty → synthetic queue runs curren
   assert.equal(nextClicked, true, 'Go to next item button should have been clicked');
 });
 
+test('mark-complete fallback uses pageFallback.findMarkCompleteButton for span.cds-button-label buttons', async () => {
+  const html =
+    MODULE_HTML +
+    '<button data-real-mark><span class="cds-button-label">Mark as completed</span></button>';
+  const j = makePage(html, 'https://www.coursera.org/learn/x/lecture/v1/intro');
+  const storage = fakeStorage();
+  const d = stateMod.defaults();
+  d.status = 'running';
+  d.courseId = 'x';
+  d.queue = [
+    { id: 'v1', kind: 'video', url: '/learn/x/lecture/v1/intro', title: 'Intro' },
+    { id: 'r1', kind: 'reading', url: '/learn/x/supplement/r1/reading', title: 'R' },
+  ];
+  await new Promise(function (r) { const it = {}; it[stateMod.RUN_KEY] = d; storage.set(it, r); });
+  const handlers = mkFakeHandlers();
+  // Don't inject tryMarkCompleteFallback — force the controller to use pageFallback.
+  let callIdx = 0;
+  const confirmer = { waitForCompletion: function () { callIdx += 1; return Promise.resolve(callIdx >= 2); } };
+  let markClicked = false;
+  j.window.document.querySelector('[data-real-mark]').addEventListener('click', function () { markClicked = true; });
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    confirmer: confirmer,
+    nowFn: function () { return 1_000_000; }, tabKey: 'tab-1', rng: seededRng(1),
+    sessionStorage: fakeSessionStorage(),
+    navigate: function () { return Promise.resolve(); },
+    pageFallback: require('../lib/page-fallback.js'),
+    sidebar: { setAutopilotStatus: function () {}, appendAutopilotLog: function () {}, setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; } },
+  });
+  await ap.bootIfRunning();
+  assert.equal(markClicked, true, 'span.cds-button-label Mark-as-completed should be clicked by the fallback');
+});
+
 test('takeOver(): force-claims ownership from a foreign-fresh tab and runs', async () => {
   const j = makePage(MODULE_HTML, 'https://www.coursera.org/learn/x/lecture/v1/intro');
   const storage = fakeStorage();
