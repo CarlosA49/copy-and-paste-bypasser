@@ -741,3 +741,23 @@ test('scrapeModule: text-pattern path does NOT bleed Module 2 items into Module 
   const r = scrapeModule(d);
   assert.equal(r.items.find(function (it) { return it.id === 'v2'; }), undefined);
 });
+
+test('scrapeModuleDiagnostics includes accordion/page-fallback counts and DOM samples', () => {
+  const d = dom(
+    '<div>' +
+      '<button class="cds-AccordionHeader-button">Module 1Intro</button>' +
+      '<div><ul><li>nothing useful</li></ul></div>' +
+      '<button>Mark as completed</button>' +
+      '<button>Go to next item</button>' +
+      '<a href="/learn/x/lecture/v1/intro">Some video link</a>' +
+    '</div>'
+  );
+  const diag = scrapeModuleDiagnostics(d);
+  assert.equal(typeof diag.accordionHeaderCount, 'number');
+  assert.equal(diag.accordionHeaderCount, 1);
+  assert.equal(diag.markCompleteCount, 1);
+  assert.equal(diag.goToNextCount, 1);
+  assert.equal(diag.learnAnchorCount, 1);
+  assert.ok(Array.isArray(diag.headerSamples));
+  assert.ok(/Module 1/.test(diag.headerSamples[0]));
+});
