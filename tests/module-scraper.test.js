@@ -222,3 +222,112 @@ test('scrapeModuleDiagnostics reports zero matches when no containers are presen
   assert.equal(diag.containerCandidates.every(function (c) { return c.matched === false; }), true);
   assert.equal(diag.totalItemsFound, 0);
 });
+
+const DRAWER_HTML =
+  '<aside data-testid="course-content-drawer" aria-label="Course content">' +
+    '<section data-testid="module-section">' +
+      '<header>' +
+        '<div class="module-eyebrow">Module 1</div>' +
+        '<h3 class="module-title">Course Pages</h3>' +
+      '</header>' +
+      '<ul role="list">' +
+        '<li>' +
+          '<a href="/learn/matlab/lecture/v1/course-preview" data-testid="rc-DesktopItem">' +
+            '<span class="status-indicator" aria-label="Not completed"></span>' +
+            '<div class="item-body">' +
+              '<div class="item-title">Course Preview</div>' +
+              '<div class="item-meta">Video • 2 min</div>' +
+            '</div>' +
+          '</a>' +
+        '</li>' +
+        '<li>' +
+          '<a href="/learn/matlab/supplement/r1/syllabus" data-testid="rc-DesktopItem">' +
+            '<span class="status-indicator status-completed" aria-label="Completed"></span>' +
+            '<div class="item-body">' +
+              '<div class="item-title">Syllabus</div>' +
+              '<div class="item-meta">Reading • 10 min</div>' +
+            '</div>' +
+          '</a>' +
+        '</li>' +
+        '<li>' +
+          '<a href="/learn/matlab/supplement/r2/grading" data-testid="rc-DesktopItem">' +
+            '<span class="status-indicator" aria-label="Not completed"></span>' +
+            '<div class="item-body">' +
+              '<div class="item-title">Grading and Logistics</div>' +
+              '<div class="item-meta">Reading • 10 min</div>' +
+            '</div>' +
+          '</a>' +
+        '</li>' +
+        '<li>' +
+          '<a href="/learn/matlab/supplement/r3/textbook" data-testid="rc-DesktopItem">' +
+            '<span class="status-indicator" aria-label="Not completed"></span>' +
+            '<div class="item-body">' +
+              '<div class="item-title">Recommended Textbook</div>' +
+              '<div class="item-meta">Reading • 10 min</div>' +
+            '</div>' +
+          '</a>' +
+        '</li>' +
+      '</ul>' +
+    '</section>' +
+    '<section data-testid="module-section">' +
+      '<header>' +
+        '<div class="module-eyebrow">Module 2</div>' +
+        '<h3 class="module-title">MATLAB Basics</h3>' +
+      '</header>' +
+      '<ul role="list">' +
+        '<li>' +
+          '<a href="/learn/matlab/lecture/v2/getting-started" data-testid="rc-DesktopItem">' +
+            '<span class="status-indicator" aria-label="Not completed"></span>' +
+            '<div class="item-body">' +
+              '<div class="item-title">Getting Started</div>' +
+              '<div class="item-meta">Video • 5 min</div>' +
+            '</div>' +
+          '</a>' +
+        '</li>' +
+      '</ul>' +
+    '</section>' +
+  '</aside>';
+
+test('drawer: extracts all 4 items from Module 1: Course Pages on a Module 1 URL', () => {
+  const d = dom(DRAWER_HTML, 'https://www.coursera.org/learn/matlab/lecture/v1/course-preview');
+  const r = scrapeModule(d);
+  assert.equal(r.items.length, 4, 'should find all 4 Module 1 items');
+  assert.equal(r.items[0].id, 'v1');
+  assert.equal(r.items[0].title, 'Course Preview');
+  assert.equal(r.items[0].kind, 'video');
+  assert.equal(r.items[1].id, 'r1');
+  assert.equal(r.items[1].title, 'Syllabus');
+  assert.equal(r.items[1].kind, 'reading');
+  assert.equal(r.items[2].title, 'Grading and Logistics');
+  assert.equal(r.items[3].title, 'Recommended Textbook');
+});
+
+test('drawer: stops at the next Module N header (does NOT include Module 2 items)', () => {
+  const d = dom(DRAWER_HTML, 'https://www.coursera.org/learn/matlab/lecture/v1/course-preview');
+  const r = scrapeModule(d);
+  const m2 = r.items.find(function (it) { return it.id === 'v2'; });
+  assert.equal(m2, undefined, 'Module 2 items must not bleed into the Module 1 queue');
+});
+
+test('drawer: picks the section that contains the current URL item (Module 2 selected when on Module 2)', () => {
+  const d = dom(DRAWER_HTML, 'https://www.coursera.org/learn/matlab/lecture/v2/getting-started');
+  const r = scrapeModule(d);
+  assert.equal(r.items.length, 1, 'Module 2 has one item');
+  assert.equal(r.items[0].id, 'v2');
+  assert.equal(r.items[0].title, 'Getting Started');
+});
+
+test('drawer: per-row completion is read from status-completed / aria-label="Completed"', () => {
+  const d = dom(DRAWER_HTML, 'https://www.coursera.org/learn/matlab/lecture/v1/course-preview');
+  const r = scrapeModule(d);
+  const syllabus = r.items.find(function (it) { return it.id === 'r1'; });
+  assert.equal(syllabus.completed, true);
+  const preview = r.items.find(function (it) { return it.id === 'v1'; });
+  assert.equal(preview.completed, false);
+});
+
+test('drawer: findItemCompletionIndicator works for the new drawer markup', () => {
+  const d = dom(DRAWER_HTML, 'https://www.coursera.org/learn/matlab/lecture/v1/course-preview');
+  const el = findItemCompletionIndicator(d, 'r1');
+  assert.ok(el, 'should find the completion indicator for the syllabus row');
+});
