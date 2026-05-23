@@ -115,3 +115,29 @@ test('exports RANGES and constants', () => {
   assert.deepEqual(RANGES.videoPostEndSec, [5, 10]);
   assert.equal(MIN_VIDEO_DURATION_FOR_SKIP_SEC, 90);
 });
+
+const timing = require('../lib/autopilot-timing.js');
+
+test('fastVideoTiming: returns mode "fast-seek" and targetTimeSec = max(0, duration - 45)', () => {
+  const t = timing.fastVideoTiming(180, function () { return 0.5; });
+  assert.equal(t.mode, 'fast-seek');
+  assert.equal(t.targetTimeSec, 135);
+  assert.equal(t.postSeekWaitMs, 5000);
+});
+
+test('fastVideoTiming: very short video (< 45s) clamps targetTimeSec to 0', () => {
+  const t = timing.fastVideoTiming(20, function () { return 0.5; });
+  assert.equal(t.mode, 'fast-seek');
+  assert.equal(t.targetTimeSec, 0);
+});
+
+test('fastVideoTiming: unknown duration (NaN) returns targetTimeSec = null and play-through mode', () => {
+  const t = timing.fastVideoTiming(NaN, function () { return 0.5; });
+  assert.equal(t.mode, 'fast-play-through');
+  assert.equal(t.targetTimeSec, null);
+});
+
+test('FAST_VIDEO_SEEK_FROM_END_SEC = 45, FAST_POST_SEEK_WAIT_MS = 5000', () => {
+  assert.equal(timing.FAST_VIDEO_SEEK_FROM_END_SEC, 45);
+  assert.equal(timing.FAST_POST_SEEK_WAIT_MS, 5000);
+});

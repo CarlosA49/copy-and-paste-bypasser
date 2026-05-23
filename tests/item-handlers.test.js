@@ -232,7 +232,7 @@ test('video handler (short video): plays through, waits for ended, post-end dwel
     const listeners = [];
     return { aborted: false, addEventListener: function (k, fn) { if (k === 'abort') listeners.push(fn); }, removeEventListener: function () {}, _abort: function () { this.aborted = true; listeners.forEach(function (fn) { fn(); }); } };
   })();
-  const p = handlers.video({ doc: doc, item: { id: 'v1', kind: 'video' }, rng: seededRng(1), signal: sig });
+  const p = handlers.video({ doc: doc, item: { id: 'v1', kind: 'video' }, rng: seededRng(1), signal: sig, behaviorMode: 'human' });
   await new Promise(function (r) { setTimeout(r, 0); });
   v.dispatchEvent(new doc.defaultView.Event('ended'));
   const out = await p;
@@ -267,7 +267,7 @@ test('video handler (long video): seeks immediately to ~1 min before end, no pre
     replies: require('../lib/discussion-replies.js'),
   });
   const sig = { aborted: false, addEventListener: function () {}, removeEventListener: function () {} };
-  const p = handlers.video({ doc: doc, item: { id: 'v2', kind: 'video' }, rng: seededRng(2), signal: sig });
+  const p = handlers.video({ doc: doc, item: { id: 'v2', kind: 'video' }, rng: seededRng(2), signal: sig, behaviorMode: 'human' });
   await new Promise(function (r) { setTimeout(r, 0); });
   assert.ok(seekedTo !== null, 'currentTime should have been set');
   // Seek target is duration(600) - seekFromEnd(50..70) = 530..550.
@@ -307,7 +307,7 @@ test('video handler: aborts mid-flight on signal abort (during ended wait)', asy
     addEventListener: function (k, fn) { if (k === 'abort') listeners.push(fn); },
     removeEventListener: function () {},
   };
-  const p = handlers.video({ doc: doc, item: { id: 'v3', kind: 'video' }, rng: seededRng(3), signal: sig })
+  const p = handlers.video({ doc: doc, item: { id: 'v3', kind: 'video' }, rng: seededRng(3), signal: sig, behaviorMode: 'human' })
     .then(function () { return 'resolved'; }, function (e) { return 'rejected:' + (e && e.message || ''); });
   await new Promise(function (r) { setTimeout(r, 0); });
   sig.aborted = true;
@@ -337,7 +337,7 @@ test('video handler: waitForEvent honors an already-aborted signal', async () =>
     addEventListener: function () {},
     removeEventListener: function () {},
   };
-  const result = await handlers.video({ doc: doc, item: { id: 'v', kind: 'video' }, rng: seededRng(1), signal: sig })
+  const result = await handlers.video({ doc: doc, item: { id: 'v', kind: 'video' }, rng: seededRng(1), signal: sig, behaviorMode: 'human' })
     .then(function () { return 'resolved'; }, function (e) { return 'rejected:' + (e && e.message || ''); });
   assert.equal(result, 'rejected:aborted', 'pre-aborted signal should reject waitForEvent immediately');
 });
@@ -358,7 +358,7 @@ test('video handler: returns video-autoplay-blocked when v.play() rejects and en
     replies: require('../lib/discussion-replies.js'),
   });
   const sig = { aborted: false, addEventListener: function () {}, removeEventListener: function () {} };
-  const out = await handlers.video({ doc: doc, item: { id: 'v', kind: 'video' }, rng: seededRng(1), signal: sig });
+  const out = await handlers.video({ doc: doc, item: { id: 'v', kind: 'video' }, rng: seededRng(1), signal: sig, behaviorMode: 'human' });
   assert.equal(out.outcome, 'video-autoplay-blocked');
 });
 
@@ -552,7 +552,7 @@ test('video handler: when direct currentTime write does not stick, falls back to
     timing: timing, sleep: function () { return Promise.resolve(); },
     jitteredScroll: function () { return Promise.resolve(); },
   });
-  const ctx = { doc: doc, item: { id: 'x', kind: 'video' }, rng: function () { return 0.5; }, signal: { aborted: false, addEventListener: function () {} } };
+  const ctx = { doc: doc, item: { id: 'x', kind: 'video' }, rng: function () { return 0.5; }, signal: { aborted: false, addEventListener: function () {} }, behaviorMode: 'human' };
   const r = await handlers.video(ctx);
   assert.equal(r.outcome, 'video-done');
   assert.ok(fwdClicks > 0, 'forward seek button should have been clicked');
@@ -595,4 +595,94 @@ test('assignment handler: when no agreement checkbox is present, pauses with no-
   const ctx = { doc: j.window.document, item: { id: 'x', kind: 'quiz', url: '/learn/x/gradedLti/X7rOE/assignment-x' }, rng: function () { return 0.5; }, signal: { aborted: false, addEventListener: function () {} } };
   const r = await handlers.assignment(ctx);
   assert.equal(r.outcome, 'assignment-no-action');
+});
+
+test('video handler (Fast mode): seeks to ~duration-45s and returns video-done-fast', async () => {
+  const { JSDOM } = require('jsdom');
+  const j = new JSDOM('<!doctype html><html><body><video></video></body></html>');
+  const doc = j.window.document;
+  const v = doc.querySelector('video');
+  Object.defineProperty(v, 'duration', { value: 180, configurable: true });
+  let ct = 0;
+  Object.defineProperty(v, 'currentTime', {
+    get: function () { return ct; },
+    set: function (x) { ct = x; },
+    configurable: true,
+  });
+  v.play = function () { return Promise.resolve(); };
+  const handlers = require('../lib/item-handlers.js').createHandlers({
+    timing: require('../lib/autopilot-timing.js'),
+    sleep: function () { return Promise.resolve(); },
+    jitteredScroll: function () { return Promise.resolve(); },
+  });
+  const ctx = {
+    doc: doc, item: { id: 'x', kind: 'video' },
+    rng: function () { return 0.5; },
+    signal: { aborted: false, addEventListener: function () {} },
+    behaviorMode: 'fast',
+  };
+  const r = await handlers.video(ctx);
+  assert.equal(r.outcome, 'video-done-fast');
+  assert.equal(Math.abs(ct - 135) < 2, true, 'currentTime should land near duration - 45');
+});
+
+test('video handler (Fast mode): when currentTime ignored, clicks forward seek button enough times', async () => {
+  const { JSDOM } = require('jsdom');
+  const j = new JSDOM(
+    '<!doctype html><html><body>' +
+      '<video></video>' +
+      '<button aria-label="Seek Video Forward 10 seconds" data-fwd></button>' +
+    '</body></html>'
+  );
+  const doc = j.window.document;
+  const v = doc.querySelector('video');
+  Object.defineProperty(v, 'duration', { value: 180, configurable: true });
+  let ct = 0;
+  Object.defineProperty(v, 'currentTime', {
+    get: function () { return ct; },
+    set: function (_) { /* DRM, ignored */ },
+    configurable: true,
+  });
+  v.play = function () { return Promise.resolve(); };
+  let clicks = 0;
+  doc.querySelector('[data-fwd]').addEventListener('click', function () { clicks += 1; ct += 10; });
+  const handlers = require('../lib/item-handlers.js').createHandlers({
+    timing: require('../lib/autopilot-timing.js'),
+    sleep: function () { return Promise.resolve(); },
+    jitteredScroll: function () { return Promise.resolve(); },
+  });
+  const ctx = {
+    doc: doc, item: { id: 'x', kind: 'video' },
+    rng: function () { return 0.5; },
+    signal: { aborted: false, addEventListener: function () {} },
+    behaviorMode: 'fast',
+  };
+  const r = await handlers.video(ctx);
+  assert.equal(r.outcome, 'video-done-fast');
+  assert.ok(clicks > 0, 'forward seek button should have been clicked');
+});
+
+test('video handler (Human mode): falls through to existing video-done outcome (regression check)', async () => {
+  const { JSDOM } = require('jsdom');
+  const j = new JSDOM('<!doctype html><html><body><video></video></body></html>');
+  const doc = j.window.document;
+  const v = doc.querySelector('video');
+  Object.defineProperty(v, 'duration', { value: 600, configurable: true });
+  let ct = 0;
+  Object.defineProperty(v, 'currentTime', { get: function () { return ct; }, set: function (x) { ct = x; }, configurable: true });
+  v.play = function () { return Promise.resolve(); };
+  setTimeout(function () { v.dispatchEvent(new j.window.Event('ended')); }, 0);
+  const handlers = require('../lib/item-handlers.js').createHandlers({
+    timing: require('../lib/autopilot-timing.js'),
+    sleep: function () { return Promise.resolve(); },
+    jitteredScroll: function () { return Promise.resolve(); },
+  });
+  const ctx = {
+    doc: doc, item: { id: 'x', kind: 'video' },
+    rng: function () { return 0.5; },
+    signal: { aborted: false, addEventListener: function () {} },
+    behaviorMode: 'human',
+  };
+  const r = await handlers.video(ctx);
+  assert.equal(r.outcome, 'video-done');
 });
