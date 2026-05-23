@@ -57,10 +57,93 @@
     try { a.sidebar.mount(); } catch (_) { /* don't crash the page on UI error */ }
   }
 
+  let _autopilotInstance = null;
+
+  function startAutopilot() {
+    const a = api();
+    if (!a || !a.moduleAutopilot || typeof a.moduleAutopilot.createAutopilot !== 'function') return;
+    if (!a.sidebar) return;
+    if (!a.autopilotState) return;
+    const storage = a.autopilotState.chromeStorageOrNull && a.autopilotState.chromeStorageOrNull();
+    if (!storage) return;
+    if (!a.itemHandlers || typeof a.itemHandlers.createHandlers !== 'function') return;
+    const handlers = a.itemHandlers.createHandlers({
+      sleep: function (ms, signal) {
+        return new Promise(function (resolve, reject) {
+          const t = setTimeout(resolve, ms);
+          if (signal && signal.addEventListener) {
+            signal.addEventListener('abort', function () { clearTimeout(t); reject(new Error('aborted')); }, { once: true });
+          }
+        });
+      },
+      jitteredScroll: function (container, opts) {
+        return new Promise(function (resolve, reject) {
+          if (!container || !container.scrollBy) { resolve(); return; }
+          const start = Date.now();
+          const timing = a.autopilotTiming;
+          function step() {
+            if (Date.now() - start >= opts.totalMs) { resolve(); return; }
+            if (opts.signal && opts.signal.aborted) { reject(new Error('aborted')); return; }
+            const s = timing.scrollStep(opts.rng);
+            try { container.scrollBy(0, s.pixels); } catch (_) {}
+            setTimeout(step, s.intervalMs);
+          }
+          step();
+        });
+      },
+      timing: a.autopilotTiming,
+      replies: a.discussionReplies,
+      typingEngine: a.typingEngine,
+      typingInjector: a.typingInjector,
+      answerApplier: a.answerApplier || null,
+    });
+    _autopilotInstance = a.moduleAutopilot.createAutopilot({
+      document: document,
+      window: window,
+      storage: storage,
+      handlers: handlers,
+      sidebar: a.sidebar,
+    });
+    if (typeof a.sidebar.setAutopilotHandlers === 'function') {
+      a.sidebar.setAutopilotHandlers({
+        onRun:    function () { _autopilotInstance.start(); },
+        onStop:   function () { _autopilotInstance.stop(); },
+        onResume: function () { _autopilotInstance.resume(); },
+        onSettingsChange: function (settings) {
+          a.autopilotState && a.autopilotState.createState(storage).update({ settings: settings }, function () {});
+        },
+      });
+    }
+    // Pause-on-user-input listener (trusted only, ignore sidebar shadow events).
+    document.addEventListener('keydown', function (ev) {
+      if (!ev.isTrusted) return;
+      const path = (typeof ev.composedPath === 'function') ? ev.composedPath() : [];
+      for (let i = 0; i < path.length; i++) {
+        if (path[i] && path[i].id === 'ccp-host-root') return;
+      }
+      _autopilotInstance && _autopilotInstance.pause('You started interacting.');
+    }, true);
+    // Visibility pause after 60s hidden.
+    let hiddenSince = 0;
+    document.addEventListener('visibilitychange', function () {
+      if (document.hidden) { hiddenSince = Date.now(); }
+      else if (hiddenSince && Date.now() - hiddenSince > 60000) {
+        _autopilotInstance && _autopilotInstance.pause('Tab was hidden — paused.');
+        hiddenSince = 0;
+      } else { hiddenSince = 0; }
+    });
+    _autopilotInstance.bootIfRunning();
+  }
+
+  function startup() {
+    mountSidebarWhenReady();
+    startAutopilot();
+  }
+
   document.addEventListener('copy', onCopy, true);
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', mountSidebarWhenReady, { once: true });
+    document.addEventListener('DOMContentLoaded', startup, { once: true });
   } else {
-    mountSidebarWhenReady();
+    startup();
   }
 })();

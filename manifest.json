@@ -3,6 +3,7 @@
   "name": "Clipboard Cleaner",
   "version": "1.0.0",
   "description": "Strips injected copyright/warning lines from copied text on Coursera and similar sites.",
+  "permissions": ["storage"],
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
@@ -23,6 +24,12 @@
         "lib/value-normalize.js",
         "lib/answer-parser.js",
         "lib/answer-matcher.js",
+        "lib/autopilot-timing.js",
+        "lib/discussion-replies.js",
+        "lib/autopilot-state.js",
+        "lib/module-scraper.js",
+        "lib/item-handlers.js",
+        "lib/module-autopilot.js",
         "lib/sidebar.js",
         "content.js"
       ],
