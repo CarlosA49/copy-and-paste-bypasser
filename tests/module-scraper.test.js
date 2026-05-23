@@ -351,3 +351,48 @@ test('findItemCompletionIndicator rejects data-testid="not-completed" indicator'
   assert.equal(findItemCompletionIndicator(d, 'v1'), null,
     'data-testid="status-not-completed" must not be treated as a completion indicator');
 });
+
+test('drawer: derives kind from visible "Video • 2 min" when URL kind is unknown', () => {
+  // /item/ is not in KIND_BY_SEGMENT — extractItemId returns null, so the row is skipped
+  // unless we also build a fallback row path. For now lock in that visible-text kind
+  // detection works whenever the URL DOES classify, e.g. a /lecture/ row whose visible
+  // text reads "Video • 2 min".
+  const d = dom(
+    '<aside data-testid="course-content-drawer">' +
+      '<section data-testid="module-section">' +
+        '<a href="/learn/x/lecture/v1/intro">' +
+          '<span class="status-indicator"></span>' +
+          '<div class="item-body">' +
+            '<div class="item-title">Course Preview</div>' +
+            '<div class="item-meta">Video • 2 min</div>' +
+          '</div>' +
+        '</a>' +
+      '</section>' +
+    '</aside>',
+    'https://www.coursera.org/learn/x/lecture/v1/intro'
+  );
+  const r = scrapeModule(d);
+  assert.equal(r.items.length, 1);
+  assert.equal(r.items[0].kind, 'video');
+  assert.equal(r.items[0].title, 'Course Preview');
+});
+
+test('drawer: title is the title element only, not concatenated with the meta line', () => {
+  const d = dom(
+    '<aside data-testid="course-content-drawer">' +
+      '<section data-testid="module-section">' +
+        '<a href="/learn/x/supplement/r1/syllabus">' +
+          '<span class="status-indicator"></span>' +
+          '<div class="item-body">' +
+            '<div class="item-title">Syllabus</div>' +
+            '<div class="item-meta">Reading • 10 min</div>' +
+          '</div>' +
+        '</a>' +
+      '</section>' +
+    '</aside>',
+    'https://www.coursera.org/learn/x/supplement/r1/syllabus'
+  );
+  const r = scrapeModule(d);
+  assert.equal(r.items[0].title, 'Syllabus');
+  assert.equal(r.items[0].title.indexOf('Reading'), -1, 'title must not include meta line');
+});
