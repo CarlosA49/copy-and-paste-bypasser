@@ -893,7 +893,7 @@ test('startAllModules: builds course-wide queue across modules, skipping blocked
 test('Fast mode video: primary confirmer timeout is 5s, advances quickly when green icon present', async () => {
   const html =
     '<div data-testid="lesson-collection">' +
-      '<a href="/learn/x/lecture/v1/intro"><svg style="color: rgb(39, 106, 26);"><rect/></svg>Intro</a>' +
+      '<a href="/learn/x/lecture/v1/intro">Intro</a>' +
       '<a href="/learn/x/supplement/r1/x">R</a>' +
     '</div>';
   const j = makePage(html, 'https://www.coursera.org/learn/x/lecture/v1/intro');
@@ -1046,6 +1046,163 @@ test('confirmer timeout: logs a diagnostics snapshot with item id, kind, current
   assert.ok(/video/.test(diag), 'should mention kind');
   assert.ok(/curT=55/.test(diag), 'should include current video time');
   assert.ok(/queue=2/.test(diag), 'should include queue length');
+});
+
+test('already-complete shortcut: video item with green check in outline row skips handler and advances cursor', async () => {
+  const html =
+    '<div data-testid="lesson-collection">' +
+      '<a href="/learn/x/lecture/v1/intro"><svg style="color: rgb(39, 106, 26);"><rect/></svg>Intro</a>' +
+      '<a href="/learn/x/supplement/r1/r">R</a>' +
+    '</div>';
+  const j = makePage(html, 'https://www.coursera.org/learn/x/lecture/v1/intro');
+  const storage = fakeStorage();
+  const d = stateMod.defaults();
+  d.status = 'running';
+  d.courseId = 'x';
+  d.queue = [
+    { id: 'v1', kind: 'video', url: '/learn/x/lecture/v1/intro', title: 'Intro' },
+    { id: 'r1', kind: 'reading', url: '/learn/x/supplement/r1/r', title: 'R' },
+  ];
+  d.cursor = 0;
+  d.ownerTabKey = 'tab-1';
+  d.heartbeatAt = 1_000_000;
+  await new Promise(function (r) { const it = {}; it[stateMod.RUN_KEY] = d; storage.set(it, r); });
+  const handlers = mkFakeHandlers();
+  const navTargets = [];
+  const logs = [];
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    nowFn: function () { return 1_000_000; }, tabKey: 'tab-1', rng: seededRng(1),
+    sessionStorage: fakeSessionStorage(),
+    navigate: function (url) { navTargets.push(url); return Promise.resolve(); },
+    sidebar: {
+      setAutopilotStatus: function () {}, appendAutopilotLog: function (l) { logs.push(l); },
+      setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; },
+    },
+    navigateUrlChangeTimeoutMs: 10,
+  });
+  await ap.bootIfRunning();
+  // The video handler must NOT have been called.
+  assert.equal(handlers.calls.length, 0, 'handler should be skipped for already-completed item');
+  // Should have logged the already-completed line.
+  assert.ok(logs.some(function (l) { return /Already completed/.test(l); }));
+  // Should have advanced to the next item (r1).
+  const after = await new Promise(function (r) { storage.get([stateMod.RUN_KEY], function (g) { r(g[stateMod.RUN_KEY]); }); });
+  assert.equal(after.cursor, 1);
+  assert.ok(navTargets.some(function (u) { return u.indexOf('/supplement/r1/') !== -1; }));
+});
+
+test('already-complete shortcut: reading page with "Reading completed" h3 skips handler and clicks Go to next item', async () => {
+  const html =
+    '<div data-testid="lesson-collection">' +
+      '<a href="/learn/x/supplement/r1/sy">Syllabus</a>' +
+      '<a href="/learn/x/lecture/v1/intro">V</a>' +
+    '</div>' +
+    '<main><h3 aria-label="Reading completed">Completed</h3></main>' +
+    '<button id="next">Go to next item</button>';
+  const j = makePage(html, 'https://www.coursera.org/learn/x/supplement/r1/sy');
+  const storage = fakeStorage();
+  const d = stateMod.defaults();
+  d.status = 'running';
+  d.courseId = 'x';
+  d.queue = [
+    { id: 'r1', kind: 'reading', url: '/learn/x/supplement/r1/sy', title: 'Syllabus' },
+    { id: 'v1', kind: 'video', url: '/learn/x/lecture/v1/intro', title: 'V' },
+  ];
+  d.cursor = 0;
+  d.ownerTabKey = 'tab-1';
+  d.heartbeatAt = 1_000_000;
+  await new Promise(function (r) { const it = {}; it[stateMod.RUN_KEY] = d; storage.set(it, r); });
+  let nextClicked = false;
+  j.window.document.getElementById('next').addEventListener('click', function () { nextClicked = true; });
+  const handlers = mkFakeHandlers();
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    nowFn: function () { return 1_000_000; }, tabKey: 'tab-1', rng: seededRng(1),
+    sessionStorage: fakeSessionStorage(),
+    navigate: function () { return Promise.resolve(); },
+    sidebar: { setAutopilotStatus: function () {}, appendAutopilotLog: function () {}, setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; } },
+    pageFallback: require('../lib/page-fallback.js'),
+    navigateUrlChangeTimeoutMs: 10,
+  });
+  await ap.bootIfRunning();
+  assert.equal(handlers.calls.find(function (c) { return c.kind === 'reading'; }), undefined, 'reading handler should be skipped');
+  assert.equal(nextClicked, true, 'should have clicked Go to next item');
+  const after = await new Promise(function (r) { storage.get([stateMod.RUN_KEY], function (g) { r(g[stateMod.RUN_KEY]); }); });
+  assert.equal(after.cursor, 1);
+});
+
+test('already-complete shortcut: when no Go-to-next button exists, still advances via queue navigation', async () => {
+  const html =
+    '<div data-testid="lesson-collection">' +
+      '<a href="/learn/x/lecture/v1/intro"><svg style="color: rgb(39, 106, 26);"><rect/></svg>Intro</a>' +
+      '<a href="/learn/x/supplement/r1/r">R</a>' +
+    '</div>';
+  const j = makePage(html, 'https://www.coursera.org/learn/x/lecture/v1/intro');
+  const storage = fakeStorage();
+  const d = stateMod.defaults();
+  d.status = 'running';
+  d.courseId = 'x';
+  d.queue = [
+    { id: 'v1', kind: 'video', url: '/learn/x/lecture/v1/intro', title: 'Intro' },
+    { id: 'r1', kind: 'reading', url: '/learn/x/supplement/r1/r', title: 'R' },
+  ];
+  d.cursor = 0;
+  d.ownerTabKey = 'tab-1';
+  d.heartbeatAt = 1_000_000;
+  await new Promise(function (r) { const it = {}; it[stateMod.RUN_KEY] = d; storage.set(it, r); });
+  const handlers = mkFakeHandlers();
+  const navTargets = [];
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    nowFn: function () { return 1_000_000; }, tabKey: 'tab-1', rng: seededRng(1),
+    sessionStorage: fakeSessionStorage(),
+    navigate: function (url) { navTargets.push(url); return Promise.resolve(); },
+    sidebar: { setAutopilotStatus: function () {}, appendAutopilotLog: function () {}, setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; } },
+    navigateUrlChangeTimeoutMs: 10,
+  });
+  await ap.bootIfRunning();
+  // No button → navigate fallback. Should hit navigate() for r1.
+  assert.ok(navTargets.some(function (u) { return u.indexOf('/supplement/r1/') !== -1; }), 'navigate should be called for next item');
+});
+
+test('already-complete shortcut: when ALL items are already complete, module finishes cleanly', async () => {
+  const html =
+    '<div data-testid="lesson-collection">' +
+      '<a href="/learn/x/lecture/v1/intro"><svg style="color: rgb(39, 106, 26);"><rect/></svg>Intro</a>' +
+      '<a href="/learn/x/lecture/v2/two"><svg style="color: rgb(39, 106, 26);"><rect/></svg>Two</a>' +
+    '</div>';
+  const j = makePage(html, 'https://www.coursera.org/learn/x/lecture/v1/intro');
+  const storage = fakeStorage();
+  const d = stateMod.defaults();
+  d.status = 'running';
+  d.courseId = 'x';
+  d.queue = [
+    { id: 'v1', kind: 'video', url: '/learn/x/lecture/v1/intro', title: 'Intro' },
+    { id: 'v2', kind: 'video', url: '/learn/x/lecture/v2/two', title: 'Two' },
+  ];
+  d.cursor = 0;
+  d.ownerTabKey = 'tab-1';
+  d.heartbeatAt = 1_000_000;
+  await new Promise(function (r) { const it = {}; it[stateMod.RUN_KEY] = d; storage.set(it, r); });
+  let lastStatus = '';
+  const handlers = mkFakeHandlers();
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    nowFn: function () { return 1_000_000; }, tabKey: 'tab-1', rng: seededRng(1),
+    sessionStorage: fakeSessionStorage(),
+    navigate: function () { return Promise.resolve(); },
+    sidebar: {
+      setAutopilotStatus: function (s) { lastStatus = s; },
+      appendAutopilotLog: function () {}, setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; },
+    },
+    navigateUrlChangeTimeoutMs: 10,
+  });
+  await ap.bootIfRunning();
+  assert.equal(handlers.calls.length, 0, 'no handler should run');
+  const after = await new Promise(function (r) { storage.get([stateMod.RUN_KEY], function (g) { r(g[stateMod.RUN_KEY]); }); });
+  assert.equal(after.status, 'idle');
+  assert.ok(/Module complete/i.test(lastStatus));
 });
 
 test('start: discussion items log "⏭ Skipped discussion prompt:" with the item title', async () => {
