@@ -2126,3 +2126,57 @@ git push origin feat/module-autopilot
 - `video-done-fast` outcome — Task 3 + Task 7 (controller uses it). ✓
 - `navigateAndConfirm(url)` — Task 10. Used in both `start()` and `startAllModules()`. ✓
 - Sidebar handler keys `onRun` / `onRunAllModules` — Tasks 1 (wiring) / 2 (UI). ✓
+
+---
+
+## Change Summary
+
+**Pause-on-input fix (Task 1):**
+- New `lib/autopilot-input-guard.js` exposes a pure `shouldPauseFor(event, settings, opts)` and `attachInputListeners(...)`. `content.js` now caches the latest settings via `onSettingsChange` and calls `attachInputListeners`, so the "Pause on keyboard/mouse input" checkbox actually controls behavior. Added `pointerdown` + `mousedown` alongside `keydown`. Sidebar shadow events are ignored.
+
+**Settings + UI (Task 2):**
+- `defaults().settings` gains `behaviorMode: 'fast'` and `runScope: 'module'`. Sidebar renames the single Run button to two: **Finish current module** + **Finish all modules**, and adds a Fast/Human radio. `setAutopilotHandlers` accepts `onRunAllModules`. Both Run buttons are disabled while running.
+
+**Fast video mode (Task 3):**
+- `lib/autopilot-timing.js` adds `fastVideoTiming(duration, rng)` + constants `FAST_VIDEO_SEEK_FROM_END_SEC=45`, `FAST_POST_SEEK_WAIT_MS=5000`. Video handler dispatches on `ctx.behaviorMode`: Fast attempts `currentTime = duration - 45`, falls back to repeated forward-seek-button clicks if the write doesn't stick, waits 5s, and returns `video-done-fast`. Human mode preserved byte-identically.
+
+**Row-scoped green completion detector (Task 4):**
+- `findGreenCompletionIconInRow(doc, itemId)` scopes the search to the matching `/learn/` anchor row. Parses inline style `color`/`fill`/`stroke`, SVG `fill`/`stroke` attributes, and `getComputedStyle` color/fill/stroke. Accepts a loose green range plus the exact Coursera `rgb(39, 106, 26)`. Confirmer consults it after `findItemCompletionIndicator` on every poll.
+
+**Blocked-item classifier (Task 5):**
+- `isBlockedAssessmentItem(item)` returns true for URL patterns `/gradedLti/`, `/assignment-submission/`, `/quiz/`, `/exam/`, `/peer/`, `/programming/`, `/review/`; for title patterns `graded`, `assignment`, `exam`, `quiz`, `peer`, `assessment`, `review your peers`, `app item`; and for kinds `quiz`, `peer-review`, `programming`, `assignment`. Discussion remains safe.
+
+**Resume-from-progress in `start()` (Task 6):**
+- `start(opts)` accepts `{ scope: 'module' | 'course' }`. Re-scrapes, filters out completed and blocked items, picks `startCursor` from `currentUrl()` when the URL maps to a safe item, logs `⏭ Skipped graded/blocked` per skip, and shows "Module already complete — no remaining safe items." if the safe queue is empty. The cursor kickoff condition kicks `runCurrentItem` whenever current URL matches `safeQueue[startCursor].id`, regardless of cursor position.
+
+**Fast confirmer window (Task 7):**
+- New `FAST_PRIMARY_CONFIRMER_TIMEOUT_MS = 5000`. The primary `confirmer.waitForCompletion` uses 5s when `settings.behaviorMode === 'fast'` AND `item.kind === 'video'`; otherwise the existing 45s. `behaviorMode` is now passed into handler `ctx`.
+
+**Course-wide scrape + `startAllModules()` (Task 8):**
+- `scrapeAllModules(doc)` returns `{ courseId, modules: [{ moduleId, headerText, items }] }` using `findAccordionHeaders` + `pairHeaderWithPanel` + `extractItemsFromPanel`. `startAllModules()` flattens all module items, filters by `isBlockedAssessmentItem` + `completed`, sets `runScope: 'course'`, and runs the same kickoff path as `start()`.
+
+**SPA route watcher (Task 9):**
+- `installRouteWatcher()` patches `history.pushState`/`replaceState` and listens to `popstate`. On URL change, calls `bootIfRunning()` (fire-and-forget; `inFlight` guards re-entrancy). `destroy()` detaches.
+
+**`navigateAndConfirm` row-anchor fallback (Task 10):**
+- All three `navigate()` call sites in the controller (`start`, `startAllModules`, `runCurrentItem`'s advance step) go through `navigateAndConfirm(url)`. It calls the injected `navigate(url)`, then polls `currentUrl()` for change up to `navigateUrlChangeTimeoutMs` (default 100ms). If the URL hasn't changed, it scans `a[href*="/learn/"]` anchors for a matching pathname and clicks it — surviving SPA-route no-ops.
+
+**Structured diagnostics snapshot (Task 11):**
+- `buildDiagnosticsSnapshot(stateNow, item, doc, pageFallback, scraperMod)` returns a flat object with `itemId`, `kind`, `title`, `url`, `queue` length, `cursor`, video `curT`/`dur`, slider `aria-valuenow`/`aria-valuemax`, mark/next button presence, and green-icon-in-row. `formatDiagnosticsSnapshot` flattens it to a `diag id=... kind=... ...` log line. Logged via `sidebar.appendAutopilotLog` + `console.warn('[autopilot stuck]', snap)` just before the pause-update inside `runCurrentItem`'s confirmer-timeout branch.
+
+**Tests:** 519 → **563 (+44, all pass).**
+
+**Commits on `feat/module-autopilot` for this plan (13 commits):**
+- `29efeff` feat(autopilot): respect pauseOnUserInput setting + add input-guard helper
+- `60c75f1` feat(autopilot): add behaviorMode setting + Finish-all-modules button
+- `a3f6309` fix(sidebar): rename onRunAll handler to onRunAllModules to match content.js
+- `09731e6` feat(video): Fast mode seeks to duration-45s and returns video-done-fast
+- `2b2e81b` feat(scraper): row-scoped green completion icon detection
+- `ccdaed1` feat(scraper): isBlockedAssessmentItem classifier for safe skipping
+- `48a9d55` feat(autopilot): start() resumes from first unfinished safe item
+- `16cea69` fix(autopilot): kick runCurrentItem when current URL matches startCursor>0
+- `f1cd289` feat(autopilot): 5s primary confirmer timeout for Fast-mode video items
+- `71f73ca` feat(autopilot): Finish-all-modules course-wide queue across accordion sections
+- `1d5b9f3` feat(autopilot): SPA route-watcher re-enters bootIfRunning on URL change
+- `97f856e` feat(autopilot): row-anchor fallback when SPA navigate does not change URL
+- `62777ba` feat(autopilot): structured diagnostics snapshot on stuck/paused
