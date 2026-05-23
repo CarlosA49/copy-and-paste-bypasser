@@ -103,6 +103,26 @@ test('createConfirmer exports the defaults', () => {
   assert.ok(DEFAULT_TIMEOUT_MS >= 30000 && DEFAULT_TIMEOUT_MS <= 60000);
 });
 
+test('waitForCompletion: returns true when scraper.findGreenCompletionIconInRow finds a green icon', async () => {
+  const { JSDOM } = require('jsdom');
+  const j = new JSDOM(
+    '<!doctype html><html><body>' +
+      '<a href="/learn/x/lecture/v1/intro"><svg style="color: rgb(39, 106, 26);"><rect/></svg></a>' +
+    '</body></html>'
+  );
+  const doc = j.window.document;
+  const scraperReal = require('../lib/module-scraper.js');
+  const scraper = {
+    findItemCompletionIndicator: function () { return null; },
+    findGreenCompletionIconInRow: function (d, id) { return scraperReal.findGreenCompletionIconInRow(d, id); },
+  };
+  const confirmer = require('../lib/completion-confirmer.js').createConfirmer({ sleep: function () { return Promise.resolve(); } });
+  const r = await confirmer.waitForCompletion({
+    doc: doc, itemId: 'v1', scraper: scraper, timeoutMs: 1000, pollIntervalMs: 1,
+  });
+  assert.equal(r, true);
+});
+
 test('waitForCompletion: top-progress count increase counts as confirmation', async () => {
   const { JSDOM } = require('jsdom');
   const j = new JSDOM('<!doctype html><html><body><div data-prog>0/3 learning items</div></body></html>');

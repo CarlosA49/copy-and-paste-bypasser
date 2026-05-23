@@ -761,3 +761,66 @@ test('scrapeModuleDiagnostics includes accordion/page-fallback counts and DOM sa
   assert.ok(Array.isArray(diag.headerSamples));
   assert.ok(/Module 1/.test(diag.headerSamples[0]));
 });
+
+const { findGreenCompletionIconInRow } = require('../lib/module-scraper.js');
+
+test('findGreenCompletionIconInRow: returns the green svg inside the matching item row', () => {
+  const d = dom(
+    '<div>' +
+      '<a href="/learn/x/lecture/v1/intro">' +
+        '<svg style="color: rgb(39, 106, 26);"><rect/></svg>' +
+        'Intro' +
+      '</a>' +
+    '</div>',
+    'https://www.coursera.org/learn/x/lecture/v1/intro'
+  );
+  const el = findGreenCompletionIconInRow(d, 'v1');
+  assert.ok(el);
+  assert.equal(el.tagName && el.tagName.toLowerCase(), 'svg');
+});
+
+test('findGreenCompletionIconInRow: ignores a green svg in an UNRELATED row', () => {
+  const d = dom(
+    '<div>' +
+      '<a href="/learn/x/lecture/v1/intro">No icon</a>' +
+      '<a href="/learn/x/lecture/v2/two">' +
+        '<svg style="color: rgb(39, 106, 26);"><rect/></svg>' +
+      '</a>' +
+    '</div>'
+  );
+  assert.equal(findGreenCompletionIconInRow(d, 'v1'), null);
+  assert.ok(findGreenCompletionIconInRow(d, 'v2'));
+});
+
+test('findGreenCompletionIconInRow: requires green-ish color (not just any svg in the row)', () => {
+  const d = dom(
+    '<div>' +
+      '<a href="/learn/x/lecture/v1/intro">' +
+        '<svg style="color: rgb(128, 128, 128);"><rect/></svg>' +
+      '</a>' +
+    '</div>'
+  );
+  assert.equal(findGreenCompletionIconInRow(d, 'v1'), null);
+});
+
+test('findGreenCompletionIconInRow: accepts fill attribute as well as style color', () => {
+  const d = dom(
+    '<div>' +
+      '<a href="/learn/x/lecture/v1/intro">' +
+        '<svg fill="rgb(39, 106, 26)"><rect/></svg>' +
+      '</a>' +
+    '</div>'
+  );
+  assert.ok(findGreenCompletionIconInRow(d, 'v1'));
+});
+
+test('findGreenCompletionIconInRow: accepts inline aria-label "Completed" inside the row', () => {
+  const d = dom(
+    '<div>' +
+      '<a href="/learn/x/lecture/v1/intro">' +
+        '<span aria-label="Completed"></span>' +
+      '</a>' +
+    '</div>'
+  );
+  assert.ok(findGreenCompletionIconInRow(d, 'v1'));
+});
