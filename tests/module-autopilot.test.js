@@ -49,7 +49,7 @@ const MODULE_HTML =
   '<div data-testid="lesson-collection">' +
     '<a href="/learn/x/lecture/v1/intro">Intro Video</a>' +
     '<a href="/learn/x/supplement/r1/reading">Reading</a>' +
-    '<a href="/learn/x/discussionPrompt/d1/prompt">Discuss</a>' +
+    '<a href="/learn/x/lecture/v2/two">Lecture Two</a>' +
   '</div>';
 
 test('generateTabKey produces a non-empty string per call', () => {
