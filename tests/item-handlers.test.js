@@ -520,3 +520,40 @@ test('tryMarkCompleteFallback: matches button with data-testid mark-complete pat
   assert.equal(result, true);
   assert.equal(clicked, true);
 });
+
+test('video handler: when direct currentTime write does not stick, falls back to Seek Video Forward 10s button', async () => {
+  const { JSDOM } = require('jsdom');
+  const j = new JSDOM(
+    '<!doctype html><html><body>' +
+      '<video></video>' +
+      '<button aria-label="Seek Video Forward 10 seconds" data-fwd></button>' +
+    '</body></html>'
+  );
+  const doc = j.window.document;
+  const v = doc.querySelector('video');
+  Object.defineProperty(v, 'duration', { value: 600, configurable: true });
+  let currentTime = 0;
+  Object.defineProperty(v, 'currentTime', {
+    get: function () { return currentTime; },
+    set: function (_) { /* ignored — DRM */ },
+    configurable: true,
+  });
+  v.play = function () { return Promise.resolve(); };
+  let fwdClicks = 0;
+  doc.querySelector('[data-fwd]').addEventListener('click', function () {
+    fwdClicks += 1;
+    currentTime += 10;
+    if (currentTime >= 590) {
+      setTimeout(function () { v.dispatchEvent(new j.window.Event('ended')); }, 0);
+    }
+  });
+  const timing = require('../lib/autopilot-timing.js');
+  const handlers = require('../lib/item-handlers.js').createHandlers({
+    timing: timing, sleep: function () { return Promise.resolve(); },
+    jitteredScroll: function () { return Promise.resolve(); },
+  });
+  const ctx = { doc: doc, item: { id: 'x', kind: 'video' }, rng: function () { return 0.5; }, signal: { aborted: false, addEventListener: function () {} } };
+  const r = await handlers.video(ctx);
+  assert.equal(r.outcome, 'video-done');
+  assert.ok(fwdClicks > 0, 'forward seek button should have been clicked');
+});
