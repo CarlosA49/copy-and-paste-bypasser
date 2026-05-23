@@ -129,9 +129,10 @@
     });
     if (typeof a.sidebar.setAutopilotHandlers === 'function') {
       a.sidebar.setAutopilotHandlers({
-        onRun:    function () { _autopilotInstance.start(); },
-        onStop:   function () { _autopilotInstance.stop(); },
-        onResume: function () { _autopilotInstance.resume(); },
+        onRun:      function () { _autopilotInstance.start(); },
+        onStop:     function () { _autopilotInstance.stop(); },
+        onResume:   function () { _autopilotInstance.resume(); },
+        onTakeOver: function () { _autopilotInstance.takeOver(); },
         onSettingsChange: function (settings) {
           a.autopilotState && a.autopilotState.createState(storage).update({ settings: settings }, function () {});
         },

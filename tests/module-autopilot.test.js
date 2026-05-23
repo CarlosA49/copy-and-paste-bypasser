@@ -658,3 +658,31 @@ test('bootIfRunning: foreign-active fires ONLY when stored ownerTabKey differs f
   assert.ok(banner.length > 0, 'should show foreign-active banner');
   assert.ok(/another tab/i.test(banner), 'banner mentions another tab');
 });
+
+test('takeOver(): force-claims ownership from a foreign-fresh tab and runs', async () => {
+  const j = makePage(MODULE_HTML, 'https://www.coursera.org/learn/x/lecture/v1/intro');
+  const storage = fakeStorage();
+  const d = stateMod.defaults();
+  d.status = 'running';
+  d.courseId = 'x';
+  d.queue = [
+    { id: 'v1', kind: 'video', url: '/learn/x/lecture/v1/intro', title: 'Intro' },
+    { id: 'v2', kind: 'video', url: '/learn/x/lecture/v2/outro', title: 'Outro' },
+  ];
+  d.ownerTabKey = 'tab-stuck';
+  d.heartbeatAt = 1_000_000 - 500; // very fresh
+  await new Promise(function (r) { const it = {}; it[stateMod.RUN_KEY] = d; storage.set(it, r); });
+  const handlers = mkFakeHandlers();
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    nowFn: function () { return 1_000_000; }, tabKey: 'tab-takeover', rng: seededRng(1),
+    sessionStorage: fakeSessionStorage(),
+    navigate: function () { return Promise.resolve(); },
+    sidebar: { setAutopilotStatus: function () {}, appendAutopilotLog: function () {}, setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; } },
+  });
+  const ran = await ap.takeOver();
+  assert.equal(ran, true);
+  assert.equal(handlers.calls.length, 1, 'handler should run after takeover');
+  const after = await new Promise(function (r) { storage.get([stateMod.RUN_KEY], function (g) { r(g[stateMod.RUN_KEY]); }); });
+  assert.equal(after.ownerTabKey, 'tab-takeover');
+});
