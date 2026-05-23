@@ -154,3 +154,48 @@ test('findItemCompletionIndicator works with the rc-Completed class fallback sel
   const el = findItemCompletionIndicator(d, 'v1');
   assert.ok(el);
 });
+
+test('scrapeModule picks the container that holds the current URL item', () => {
+  const d = dom(
+    '<div data-testid="lesson-collection">' +
+      '<a href="/learn/test-course/lecture/m1v1/intro">M1V1</a>' +
+      '<a href="/learn/test-course/lecture/m1v2/two">M1V2</a>' +
+    '</div>' +
+    '<div data-testid="lesson-collection">' +
+      '<a href="/learn/test-course/lecture/m2v1/three">M2V1</a>' +
+      '<a href="/learn/test-course/lecture/m2v2/four">M2V2</a>' +
+    '</div>',
+    'https://www.coursera.org/learn/test-course/lecture/m2v1/three'
+  );
+  const r = scrapeModule(d);
+  assert.equal(r.items.length, 2, 'should pick the module containing the current item');
+  assert.equal(r.items[0].id, 'm2v1');
+  assert.equal(r.items[1].id, 'm2v2');
+});
+
+test('scrapeModule falls back to the first non-empty container when current item is in none', () => {
+  const d = dom(
+    '<div data-testid="lesson-collection">' +
+      '<a href="/learn/test-course/lecture/m1v1/intro">M1V1</a>' +
+    '</div>' +
+    '<div data-testid="lesson-collection">' +
+      '<a href="/learn/test-course/lecture/m2v1/three">M2V1</a>' +
+    '</div>',
+    'https://www.coursera.org/learn/test-course/home/week/1'
+  );
+  const r = scrapeModule(d);
+  assert.equal(r.items.length, 1);
+  assert.equal(r.items[0].id, 'm1v1');
+});
+
+test('scrapeModule still works when only one container is present (back-compat)', () => {
+  const d = dom(
+    '<div data-testid="lesson-collection">' +
+      '<a href="/learn/test-course/lecture/v1/intro">V1</a>' +
+      '<a href="/learn/test-course/lecture/v2/two">V2</a>' +
+    '</div>',
+    'https://www.coursera.org/learn/test-course/lecture/v1/intro'
+  );
+  const r = scrapeModule(d);
+  assert.equal(r.items.length, 2);
+});
