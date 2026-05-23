@@ -548,3 +548,73 @@ test('pairHeaderWithPanel returns null when no following content has learn ancho
   const header = d.querySelector('button');
   assert.equal(pairHeaderWithPanel(header, d), null);
 });
+
+const { extractItemsFromPanel } = require('../lib/module-scraper.js');
+
+const CDS_PANEL_HTML =
+  '<div id="m2-panel">' +
+    '<ul>' +
+      '<li>' +
+        '<div>' +
+          '<a href="/learn/matlab/lecture/AAAA/intro-to-matrices">' +
+            '<div class="outline-single-item-content-wrapper">' +
+              '<div>' +
+                '<div>Introduction to Matrices and Operators</div>' +
+                '<div>Video<span>. Duration: 5 minutes5 min</span></div>' +
+              '</div>' +
+              '<svg><rect /></svg>' +
+            '</div>' +
+          '</a>' +
+        '</div>' +
+      '</li>' +
+      '<li>' +
+        '<div>' +
+          '<a href="/learn/matlab/supplement/BBBB/lesson-2-matrices-and-operators">' +
+            '<div class="outline-single-item-content-wrapper">' +
+              '<div>' +
+                '<div>Lesson 2: Matrices and Operators</div>' +
+                '<div>Reading<span>. Duration: 10 minutes10 min</span></div>' +
+              '</div>' +
+              '<svg><rect /></svg>' +
+            '</div>' +
+          '</a>' +
+        '</div>' +
+      '</li>' +
+    '</ul>' +
+  '</div>';
+
+test('extractItemsFromPanel extracts items from real Coursera CDS panel markup', () => {
+  const d = dom(CDS_PANEL_HTML);
+  const panel = d.getElementById('m2-panel');
+  const items = extractItemsFromPanel(panel);
+  assert.equal(items.length, 2);
+  assert.equal(items[0].id, 'AAAA');
+  assert.equal(items[0].title, 'Introduction to Matrices and Operators');
+  assert.equal(items[0].kind, 'video');
+  assert.equal(items[0].url, '/learn/matlab/lecture/AAAA/intro-to-matrices');
+  assert.equal(items[1].id, 'BBBB');
+  assert.equal(items[1].title, 'Lesson 2: Matrices and Operators');
+  assert.equal(items[1].kind, 'reading');
+});
+
+test('extractItemsFromPanel marks items completed when aria-label="Completed" indicator is present', () => {
+  const d = dom(
+    '<div id="p"><ul>' +
+      '<li><a href="/learn/x/lecture/v1/x">' +
+        '<div class="outline-single-item-content-wrapper">' +
+          '<div><div>Title A</div><div>Video. 2 min</div></div>' +
+          '<span aria-label="Completed"></span>' +
+        '</div>' +
+      '</a></li>' +
+      '<li><a href="/learn/x/lecture/v2/x">' +
+        '<div class="outline-single-item-content-wrapper">' +
+          '<div><div>Title B</div><div>Video. 2 min</div></div>' +
+          '<span aria-label="Not completed"></span>' +
+        '</div>' +
+      '</a></li>' +
+    '</ul></div>'
+  );
+  const items = extractItemsFromPanel(d.getElementById('p'));
+  assert.equal(items[0].completed, true);
+  assert.equal(items[1].completed, false);
+});
