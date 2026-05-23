@@ -199,3 +199,26 @@ test('scrapeModule still works when only one container is present (back-compat)'
   const r = scrapeModule(d);
   assert.equal(r.items.length, 2);
 });
+
+const { scrapeModuleDiagnostics } = require('../lib/module-scraper.js');
+
+test('scrapeModuleDiagnostics lists candidate containers and whether each matched', () => {
+  const d = dom(
+    '<div data-testid="lesson-collection">' +
+      '<a href="/learn/test-course/lecture/v1/intro">Intro</a>' +
+    '</div>'
+  );
+  const diag = scrapeModuleDiagnostics(d);
+  assert.ok(Array.isArray(diag.containerCandidates));
+  const hit = diag.containerCandidates.find(function (c) { return c.selector === '[data-testid="lesson-collection"]'; });
+  assert.ok(hit, 'legacy selector should be listed');
+  assert.equal(hit.matched, true);
+  assert.equal(hit.itemCount, 1);
+});
+
+test('scrapeModuleDiagnostics reports zero matches when no containers are present', () => {
+  const d = dom('<div>nothing useful here</div>');
+  const diag = scrapeModuleDiagnostics(d);
+  assert.equal(diag.containerCandidates.every(function (c) { return c.matched === false; }), true);
+  assert.equal(diag.totalItemsFound, 0);
+});
