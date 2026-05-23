@@ -306,3 +306,42 @@ test('pause: flips running -> paused and releases ownership', async () => {
   assert.equal(after.status, 'paused');
   assert.equal(after.ownerTabKey, null);
 });
+
+test('pause during handler: cursor not advanced after handler completes', async () => {
+  const j = makePage(MODULE_HTML, 'https://www.coursera.org/learn/x/lecture/v1/intro');
+  const storage = fakeStorage();
+  const d = stateMod.defaults();
+  d.status = 'running';
+  d.courseId = 'x';
+  d.queue = [
+    { id: 'v1', kind: 'video', url: '/learn/x/lecture/v1/intro', title: 'Intro' },
+    { id: 'r1', kind: 'reading', url: '/learn/x/supplement/r1/reading', title: 'Reading' },
+  ];
+  await new Promise(function (r) { const it = {}; it[stateMod.RUN_KEY] = d; storage.set(it, r); });
+
+  let apRef = null;
+  const handlers = {
+    video: async function (ctx) {
+      // Simulate: pause() fires mid-handler. We call it via the controller reference.
+      await apRef.pause('test pause during handler');
+      // Handler still completes — this is the race the fix guards against.
+      return { outcome: 'video-done', mode: 'play-through' };
+    },
+    reading: function () { throw new Error('reading should not run'); },
+    discussion: function () { throw new Error('discussion should not run'); },
+    fallback: function () { throw new Error('fallback should not run'); },
+  };
+
+  const navTargets = [];
+  apRef = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    nowFn: function () { return 1_000_000; }, tabKey: 'tab-1', rng: seededRng(1),
+    navigate: function (url) { navTargets.push(url); return Promise.resolve(); },
+    sidebar: { setAutopilotStatus: function () {}, appendAutopilotLog: function () {}, setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; } },
+  });
+  await apRef.bootIfRunning();
+  const after = await new Promise(function (r) { storage.get([stateMod.RUN_KEY], function (g) { r(g[stateMod.RUN_KEY]); }); });
+  assert.equal(after.cursor, 0, 'cursor should NOT advance when paused mid-handler');
+  assert.equal(after.status, 'paused', 'status should be paused');
+  assert.equal(navTargets.length, 0, 'navigate should NOT be called');
+});
