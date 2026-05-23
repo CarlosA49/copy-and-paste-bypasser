@@ -824,3 +824,52 @@ test('findGreenCompletionIconInRow: accepts inline aria-label "Completed" inside
   );
   assert.ok(findGreenCompletionIconInRow(d, 'v1'));
 });
+
+// ── Task 5: isBlockedAssessmentItem ──────────────────────────────────────────
+const { isBlockedAssessmentItem } = require('../lib/module-scraper.js');
+
+test('isBlockedAssessmentItem: gradedLti URLs are blocked', () => {
+  assert.equal(isBlockedAssessmentItem({ url: '/learn/matlab/gradedLti/V2JkF/assignment-lesson-1-wrap-up', title: 'Wrap-up', kind: 'assignment' }), true);
+});
+
+test('isBlockedAssessmentItem: peer URLs are blocked', () => {
+  assert.equal(isBlockedAssessmentItem({ url: '/learn/ai-ethics/peer/UdoHt/course-reflection', title: 'Review Your Peers', kind: 'peer-review' }), true);
+});
+
+test('isBlockedAssessmentItem: assignment-submission URLs are blocked', () => {
+  assert.equal(isBlockedAssessmentItem({ url: '/learn/physics/assignment-submission/lMLNW/exam', title: 'Exam', kind: 'quiz' }), true);
+});
+
+test('isBlockedAssessmentItem: quiz URLs are blocked', () => {
+  assert.equal(isBlockedAssessmentItem({ url: '/learn/x/quiz/q1/week-1', title: 'Week 1 Quiz', kind: 'quiz' }), true);
+});
+
+test('isBlockedAssessmentItem: exam URLs are blocked', () => {
+  assert.equal(isBlockedAssessmentItem({ url: '/learn/x/exam/e1/final', title: 'Final', kind: 'quiz' }), true);
+});
+
+test('isBlockedAssessmentItem: programming URLs are blocked', () => {
+  assert.equal(isBlockedAssessmentItem({ url: '/learn/x/programming/p1/lab1', title: 'Lab 1', kind: 'programming' }), true);
+});
+
+test('isBlockedAssessmentItem: visible-text "Graded Assignment" blocks even without URL pattern', () => {
+  assert.equal(isBlockedAssessmentItem({ url: '/learn/x/lecture/v1/x', title: 'Graded Assignment', kind: 'video' }), true);
+});
+
+test('isBlockedAssessmentItem: visible-text "Review Your Peers" blocks', () => {
+  assert.equal(isBlockedAssessmentItem({ url: '/learn/x/supplement/s/x', title: 'Review Your Peers', kind: 'reading' }), true);
+});
+
+test('isBlockedAssessmentItem: visible-text "App Item" blocks', () => {
+  assert.equal(isBlockedAssessmentItem({ url: '/learn/x/lecture/v1/x', title: 'Cool App Item', kind: 'video' }), true);
+});
+
+test('isBlockedAssessmentItem: plain readings/videos are NOT blocked', () => {
+  assert.equal(isBlockedAssessmentItem({ url: '/learn/x/lecture/v1/x', title: 'Course Preview', kind: 'video' }), false);
+  assert.equal(isBlockedAssessmentItem({ url: '/learn/x/supplement/r1/x', title: 'Syllabus', kind: 'reading' }), false);
+  assert.equal(isBlockedAssessmentItem({ url: '/learn/x/discussionPrompt/d1/x', title: 'Discussion', kind: 'discussion' }), false);
+});
+
+test('isBlockedAssessmentItem: discussion is NOT blocked (safe content)', () => {
+  assert.equal(isBlockedAssessmentItem({ url: '/learn/x/discussionPrompt/d1/x', title: 'Week 1 Discussion', kind: 'discussion' }), false);
+});
