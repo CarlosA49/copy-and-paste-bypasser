@@ -507,3 +507,23 @@ test('handler failure outcome (pause-needed-*) skips confirmer entirely and paus
   assert.equal(after.status, 'paused');
   assert.equal(after.cursor, 0);
 });
+
+test('start: logs a diagnostic when no items are found', async () => {
+  const j = makePage('<div>empty page</div>', 'https://www.coursera.org/learn/x/home/week/1');
+  const storage = fakeStorage();
+  const logs = [];
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: mkFakeHandlers(),
+    nowFn: function () { return 1_000_000; }, tabKey: 'tab-1', rng: seededRng(1),
+    navigate: function () { return Promise.resolve(); },
+    sidebar: {
+      setAutopilotStatus: function () {}, appendAutopilotLog: function (l) { logs.push(l); },
+      setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; },
+    },
+  });
+  await ap.start();
+  const summary = logs.find(function (l) { return l.indexOf('No items found') !== -1; });
+  assert.ok(summary, 'should log a no-items diagnostic');
+  assert.ok(summary.indexOf('lesson-collection') !== -1 || summary.indexOf('candidate') !== -1,
+    'diagnostic should reference a candidate selector');
+});
