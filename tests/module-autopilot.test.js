@@ -746,3 +746,112 @@ test('takeOver(): force-claims ownership from a foreign-fresh tab and runs', asy
   const after = await new Promise(function (r) { storage.get([stateMod.RUN_KEY], function (g) { r(g[stateMod.RUN_KEY]); }); });
   assert.equal(after.ownerTabKey, 'tab-takeover');
 });
+
+test('start: skips already-completed items and starts at first unfinished safe item', async () => {
+  const html =
+    '<div data-testid="lesson-collection">' +
+      '<a href="/learn/x/lecture/v1/intro"><span aria-label="Completed"></span>Intro</a>' +
+      '<a href="/learn/x/supplement/r1/syllabus">Syllabus</a>' +
+      '<a href="/learn/x/lecture/v2/two">Two</a>' +
+    '</div>';
+  const j = makePage(html, 'https://www.coursera.org/learn/x/lecture/v1/intro');
+  const storage = fakeStorage();
+  const navTargets = [];
+  const handlers = mkFakeHandlers();
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    nowFn: function () { return 1_000_000; }, tabKey: 'tab-1', rng: seededRng(1),
+    sessionStorage: fakeSessionStorage(),
+    navigate: function (url) { navTargets.push(url); return Promise.resolve(); },
+    sidebar: { setAutopilotStatus: function () {}, appendAutopilotLog: function () {}, setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; } },
+  });
+  await ap.start();
+  const got = await new Promise(function (r) { storage.get([stateMod.RUN_KEY], function (g) { r(g[stateMod.RUN_KEY]); }); });
+  // v1 is completed → queue starts with r1 then v2.
+  assert.equal(got.queue.length, 2, 'completed item v1 should be filtered out');
+  assert.equal(got.queue[0].id, 'r1');
+  assert.equal(got.queue[1].id, 'v2');
+  assert.ok(navTargets[0].indexOf('/supplement/r1/') !== -1, 'should navigate to r1, not v1');
+});
+
+test('start: when current URL matches an unfinished safe item, starts cursor there', async () => {
+  const html =
+    '<div data-testid="lesson-collection">' +
+      '<a href="/learn/x/lecture/v1/intro"><span aria-label="Completed"></span>Intro</a>' +
+      '<a href="/learn/x/supplement/r1/syllabus">Syllabus</a>' +
+      '<a href="/learn/x/lecture/v2/two">Two</a>' +
+    '</div>';
+  const j = makePage(html, 'https://www.coursera.org/learn/x/lecture/v2/two');
+  const storage = fakeStorage();
+  const handlers = mkFakeHandlers();
+  const navTargets = [];
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    nowFn: function () { return 1_000_000; }, tabKey: 'tab-1', rng: seededRng(1),
+    sessionStorage: fakeSessionStorage(),
+    navigate: function (url) { navTargets.push(url); return Promise.resolve(); },
+    sidebar: { setAutopilotStatus: function () {}, appendAutopilotLog: function () {}, setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; } },
+  });
+  await ap.start();
+  const got = await new Promise(function (r) { storage.get([stateMod.RUN_KEY], function (g) { r(g[stateMod.RUN_KEY]); }); });
+  // queue is [r1, v2], current URL is v2 → cursor should be 1.
+  assert.equal(got.queue.length, 2);
+  assert.equal(got.cursor, 1);
+});
+
+test('start: filters out blocked items (gradedLti, quiz, peer) from the queue', async () => {
+  const html =
+    '<div data-testid="lesson-collection">' +
+      '<a href="/learn/x/lecture/v1/intro">Intro</a>' +
+      '<a href="/learn/x/quiz/q1/wk1">Week 1 Quiz</a>' +
+      '<a href="/learn/x/supplement/r1/sy">Syllabus</a>' +
+      '<a href="/learn/x/peer/p1/peer">Review Your Peers</a>' +
+      '<a href="/learn/x/lecture/v2/two">Two</a>' +
+    '</div>';
+  const j = makePage(html, 'https://www.coursera.org/learn/x/lecture/v1/intro');
+  const storage = fakeStorage();
+  const handlers = mkFakeHandlers();
+  const logs = [];
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    nowFn: function () { return 1_000_000; }, tabKey: 'tab-1', rng: seededRng(1),
+    sessionStorage: fakeSessionStorage(),
+    navigate: function () { return Promise.resolve(); },
+    sidebar: {
+      setAutopilotStatus: function () {}, appendAutopilotLog: function (l) { logs.push(l); },
+      setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; },
+    },
+  });
+  await ap.start();
+  const got = await new Promise(function (r) { storage.get([stateMod.RUN_KEY], function (g) { r(g[stateMod.RUN_KEY]); }); });
+  assert.equal(got.queue.length, 3, 'quiz and peer items filtered out');
+  assert.deepEqual(got.queue.map(function (it) { return it.id; }), ['v1', 'r1', 'v2']);
+  // Skip log lines should appear.
+  assert.ok(logs.some(function (l) { return /Skipped/.test(l); }));
+});
+
+test('start: when all items are complete or blocked, shows "Module already complete." and does not navigate', async () => {
+  const html =
+    '<div data-testid="lesson-collection">' +
+      '<a href="/learn/x/lecture/v1/intro"><span aria-label="Completed"></span>Intro</a>' +
+      '<a href="/learn/x/quiz/q1/wk1">Week 1 Quiz</a>' +
+    '</div>';
+  const j = makePage(html, 'https://www.coursera.org/learn/x/lecture/v1/intro');
+  const storage = fakeStorage();
+  const handlers = mkFakeHandlers();
+  let status = '';
+  const navTargets = [];
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    nowFn: function () { return 1_000_000; }, tabKey: 'tab-1', rng: seededRng(1),
+    sessionStorage: fakeSessionStorage(),
+    navigate: function (url) { navTargets.push(url); return Promise.resolve(); },
+    sidebar: {
+      setAutopilotStatus: function (s) { status = s; },
+      appendAutopilotLog: function () {}, setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; },
+    },
+  });
+  await ap.start();
+  assert.ok(/already complete|no remaining safe/i.test(status));
+  assert.equal(navTargets.length, 0);
+});
