@@ -345,3 +345,31 @@ test('pause during handler: cursor not advanced after handler completes', async 
   assert.equal(after.status, 'paused', 'status should be paused');
   assert.equal(navTargets.length, 0, 'navigate should NOT be called');
 });
+
+test('start: kicks off handler when current URL already matches queue[0]', async () => {
+  // User is on /lecture/v1/intro and clicks Run. Without the fix, navigate is a no-op
+  // and the handler never runs.
+  const j = makePage(MODULE_HTML, 'https://www.coursera.org/learn/x/lecture/v1/intro');
+  const storage = fakeStorage();
+  const handlers = mkFakeHandlers();
+  const navTargets = [];
+  const ap = createAutopilot({
+    document: j.window.document,
+    window: j.window,
+    storage: storage,
+    handlers: handlers,
+    nowFn: function () { return 1_000_000; },
+    tabKey: 'tab-1',
+    rng: seededRng(1),
+    navigate: function (url) { navTargets.push(url); return Promise.resolve(); },
+    sidebar: { setAutopilotStatus: function () {}, appendAutopilotLog: function () {}, setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; } },
+  });
+  await ap.start();
+  // navigate is still called (best-effort), but the handler must have fired too.
+  assert.equal(handlers.calls.length, 1, 'handler should have run for queue[0]');
+  assert.equal(handlers.calls[0].kind, 'video');
+  assert.equal(handlers.calls[0].id, 'v1');
+  // After the handler resolves, cursor should advance to 1.
+  const after = await new Promise(function (r) { storage.get([stateMod.RUN_KEY], function (g) { r(g[stateMod.RUN_KEY]); }); });
+  assert.equal(after.cursor, 1, 'cursor should advance after handler resolves');
+});
