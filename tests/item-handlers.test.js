@@ -314,3 +314,49 @@ test('video handler: aborts mid-flight on signal abort', async () => {
   const result = await p;
   assert.equal(result, 'rejected:aborted');
 });
+
+test('video handler: waitForEvent honors an already-aborted signal', async () => {
+  const doc = new (require('jsdom').JSDOM)(
+    '<!doctype html><body><video></video></body>'
+  ).window.document;
+  const v = doc.querySelector('video');
+  Object.defineProperty(v, 'duration', { configurable: true, get: function () { return 60; } });
+  v.play = function () { return Promise.resolve(); };
+
+  // Sleep that resolves immediately so the handler reaches waitForEvent quickly.
+  const sleep = function () { return Promise.resolve(); };
+  const handlers = require('../lib/item-handlers.js').createHandlers({
+    sleep: sleep,
+    jitteredScroll: function () { return Promise.resolve(); },
+    timing: require('../lib/autopilot-timing.js'),
+    replies: require('../lib/discussion-replies.js'),
+  });
+  const sig = {
+    aborted: true, // pre-aborted
+    addEventListener: function () {},
+    removeEventListener: function () {},
+  };
+  const result = await handlers.video({ doc: doc, item: { id: 'v', kind: 'video' }, rng: seededRng(1), signal: sig })
+    .then(function () { return 'resolved'; }, function (e) { return 'rejected:' + (e && e.message || ''); });
+  assert.equal(result, 'rejected:aborted', 'pre-aborted signal should reject waitForEvent immediately');
+});
+
+test('video handler: returns video-autoplay-blocked when v.play() rejects and ended never fires', async () => {
+  const doc = new (require('jsdom').JSDOM)(
+    '<!doctype html><body><video></video></body>'
+  ).window.document;
+  const v = doc.querySelector('video');
+  Object.defineProperty(v, 'duration', { configurable: true, get: function () { return 60; } });
+  v.play = function () { return Promise.reject(new Error('NotAllowedError')); };
+
+  const sleep = function () { return Promise.resolve(); };
+  const handlers = require('../lib/item-handlers.js').createHandlers({
+    sleep: sleep,
+    jitteredScroll: function () { return Promise.resolve(); },
+    timing: require('../lib/autopilot-timing.js'),
+    replies: require('../lib/discussion-replies.js'),
+  });
+  const sig = { aborted: false, addEventListener: function () {}, removeEventListener: function () {} };
+  const out = await handlers.video({ doc: doc, item: { id: 'v', kind: 'video' }, rng: seededRng(1), signal: sig });
+  assert.equal(out.outcome, 'video-autoplay-blocked');
+});
