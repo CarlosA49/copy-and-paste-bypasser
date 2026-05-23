@@ -484,3 +484,39 @@ test('fallback handler: pauses when applier returns selected=0 filled=0', async 
   });
   assert.equal(out.outcome, 'pause-needed-no-match');
 });
+
+
+test('tryMarkCompleteFallback: clicks visible Mark-complete button and returns true', () => {
+  const { tryMarkCompleteFallback } = require('../lib/item-handlers.js');
+  const doc = new (require('jsdom').JSDOM)(
+    '<!doctype html><body><button aria-label="Mark as completed">Done</button></body>'
+  ).window.document;
+  const btn = doc.querySelector('button');
+  let clicked = false;
+  btn.click = function () { clicked = true; };
+  const result = tryMarkCompleteFallback(doc);
+  assert.equal(result, true);
+  assert.equal(clicked, true);
+});
+
+test('tryMarkCompleteFallback: returns false when no button is present', () => {
+  const { tryMarkCompleteFallback } = require('../lib/item-handlers.js');
+  const doc = new (require('jsdom').JSDOM)(
+    '<!doctype html><body><div>no buttons here</div></body>'
+  ).window.document;
+  const result = tryMarkCompleteFallback(doc);
+  assert.equal(result, false);
+});
+
+test('tryMarkCompleteFallback: matches button with data-testid mark-complete pattern', () => {
+  const { tryMarkCompleteFallback } = require('../lib/item-handlers.js');
+  const doc = new (require('jsdom').JSDOM)(
+    '<!doctype html><body><button data-testid="mark-as-complete-button">x</button></body>'
+  ).window.document;
+  const btn = doc.querySelector('button');
+  let clicked = false;
+  btn.click = function () { clicked = true; };
+  const result = tryMarkCompleteFallback(doc);
+  assert.equal(result, true);
+  assert.equal(clicked, true);
+});
