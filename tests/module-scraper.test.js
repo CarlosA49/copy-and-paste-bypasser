@@ -677,3 +677,41 @@ test('scrapeModule (accordion layer) coexists with Layer 1: legacy lesson-collec
   assert.equal(r.items.length, 1);
   assert.equal(r.items[0].id, 'v1');
 });
+
+const SECOND_COURSE_HTML =
+  '<div>' +
+    '<button class="cds-AccordionHeader-button" aria-controls="w3p" aria-expanded="true">' +
+      '<div>Week 3</div><div>Pandas for Data Wrangling</div>' +
+    '</button>' +
+    '<div id="w3p">' +
+      '<ul>' +
+        '<li><a href="/learn/python-ds/lecture/abc/dataframes">' +
+          '<div class="outline-single-item-content-wrapper"><div><div>DataFrames Deep Dive</div><div>Video. Duration: 12 min</div></div></div>' +
+        '</a></li>' +
+        '<li><a href="/learn/python-ds/quiz/q3/pandas-quiz">' +
+          '<div class="outline-single-item-content-wrapper"><div><div>Week 3 Knowledge Check</div><div>Practice Quiz. 8 questions</div></div></div>' +
+        '</a></li>' +
+        '<li><a href="/learn/python-ds/peer/p3/group-eda">' +
+          '<div class="outline-single-item-content-wrapper"><div><div>Group EDA</div><div>Peer Review. 2 submissions</div></div></div>' +
+        '</a></li>' +
+        '<li><a href="/learn/python-ds/programming/lab3/groupby-lab">' +
+          '<div class="outline-single-item-content-wrapper"><div><div>Groupby Lab</div><div>Programming Assignment. 90 min</div></div></div>' +
+        '</a></li>' +
+      '</ul>' +
+    '</div>' +
+  '</div>';
+
+test('scrapeModule: accordion path works on a different course (Python Data Science) with different kinds', () => {
+  const d = dom(SECOND_COURSE_HTML, 'https://www.coursera.org/learn/python-ds/quiz/q3/pandas-quiz');
+  const r = scrapeModule(d);
+  assert.equal(r.items.length, 4);
+  assert.equal(r.items[0].kind, 'video');
+  assert.equal(r.items[1].kind, 'quiz');
+  assert.equal(r.items[2].kind, 'peer-review');
+  assert.equal(r.items[3].kind, 'programming');
+  assert.equal(r.items[0].title, 'DataFrames Deep Dive');
+  assert.equal(r.items[1].title, 'Week 3 Knowledge Check');
+  assert.equal(r.items[2].title, 'Group EDA');
+  assert.equal(r.items[3].title, 'Groupby Lab');
+  assert.equal(r.courseId, 'python-ds');
+});
