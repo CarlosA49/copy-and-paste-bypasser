@@ -830,3 +830,36 @@ git push origin feat/module-autopilot
 - Outcome string `'already-completed'` — Task 4. `isFailureOutcome` returns false for unknown outcomes by default — verify this in the existing implementation before relying on it. (Falls through the various `if (o.outcome === ...)` checks and returns `false`.) ✓
 - Settings: no new settings introduced. ✓
 - Sidebar handler keys: no new handlers. ✓
+
+---
+
+## Change Summary
+
+**Discussion-prompt blocking (Task 1):**
+- `isBlockedAssessmentItem` now matches `/discussionPrompt/` + `/discussion/` URL patterns, `/\bdiscussion prompt\b/i` title pattern, and the `discussion` kind. The prior `discussion is NOT blocked (safe content)` test was flipped to `discussion IS now blocked`. The `MODULE_HTML` test fixture in `tests/module-autopilot.test.js` was updated to swap its `discussionPrompt` anchor for a second `lecture` anchor so existing queue-length assertions hold.
+
+**Kind-aware skip log labels (Task 2):**
+- New `blockReasonLabel(item)` helper classifies an item as `discussion prompt`, `peer review`, `exam`, `quiz`, `programming assignment`, `graded item`, or `blocked` using kind + URL + title. Both `start()` and `startAllModules()` now log `⏭ Skipped {label}: "{title}"` instead of the previous generic `⏭ Skipped graded/blocked: ...`.
+
+**Completed-reading detector (Task 3):**
+- New `pageFallback.findCompletedReadingIndicator(root)` matches any element with `aria-label` containing `/reading\s+completed/i` (any tag) OR a heading-tag element with `aria-label` matching `/^completed$/i`. Restricting the bare-"Completed" check to headings (H1-H6) prevents false matches on prose like "You have not yet Completed this section."
+- Regression test confirms `findGoToNextItemButton` already handles `<span class="cds-button-label">Go to next item</span>` nested inside a `<button>` (existing impl works via `textContent` traversal).
+
+**Pre-handler already-complete shortcut (Task 4):**
+- `runCurrentItem` now computes `alreadyCompleteIndicator = scraperMod.findGreenCompletionIconInRow(doc, item.id) || (item.kind === 'reading' && pageFallback.findCompletedReadingIndicator(doc))` before the handler dispatch.
+- When truthy: logs `✓ Already completed: "{title}"`, clicks `findGoToNextItemButton(doc)` if present, sets `outcome = { outcome: 'already-completed' }`, and falls through to the existing success path (recordCourseItem + cursor advance + navigateAndConfirm).
+- A **forward-scan loop** then processes any consecutive already-complete items in the same DOM pass, with `effectiveCursor` tracking the position so the end-of-queue check fires correctly when all items are pre-completed.
+- The existing Fast-mode-video confirmer test was patched (green svg removed from its v1 anchor) so it still exercises the 5s primary-confirmer path without prematurely tripping the shortcut.
+
+**Multi-scope tests (Task 5):**
+- Locked in three behaviors: module scope's queue is M1-only (no cross-module bleed), course scope queues safe items across modules in DOM order, course scope filters blocked items (discussion + quiz) in subsequent modules too.
+
+**Tests:** 563 → **583 (+20, all pass).**
+
+**Commits on `feat/module-autopilot` for this plan (6 commits):**
+- `41dfa31` feat(scraper): block discussion prompts as graded-family
+- `1508617` test(autopilot): update MODULE_HTML fixture to avoid blocked discussion item
+- `52353a4` feat(autopilot): kind-aware skip log labels (discussion prompt, quiz, peer, ...)
+- `0a3b66c` feat(page-fallback): findCompletedReadingIndicator + Go-to-next regression test
+- `70fa18c` feat(autopilot): pre-handler shortcut skips already-completed items
+- `a59455f` test(autopilot): lock module boundary + course-scope continuation
