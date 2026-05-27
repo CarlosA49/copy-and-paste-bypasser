@@ -399,3 +399,128 @@ test('U9: end-to-end sidebar text contains no "DeepSeek" after wire+refresh in t
   const panel = shadow.querySelector('[data-panel="ai-answer"]');
   assert.equal(panel.textContent.indexOf('DeepSeek'), -1, 'integration: no DeepSeek visible in sidebar');
 });
+
+// === U14 LIVE — Scan/Generate/Apply are enabled on what U12 considered a "blocked" URL ===
+
+test('U14-LIVE: rendered sidebar on /assignment-submission/.../attempt detects questions and Scan/Generate/Apply work', async () => {
+  const SIDEBAR_PATH_LOCAL = require.resolve('../lib/sidebar.js');
+  const CONTROLLER_PATH_LOCAL = require.resolve('../lib/ai-answer-controller.js');
+  delete require.cache[SIDEBAR_PATH_LOCAL];
+  delete require.cache[CONTROLLER_PATH_LOCAL];
+
+  const MARKER_Q1 = 'What does BW stand for in communication field?';
+  const html = '<section><h3>Question 1</h3><p>' + MARKER_Q1 + '</p>'
+    + '<label><input type="radio" name="r1">Bandwidth</label>'
+    + '<label><input type="radio" name="r1">Beamwidth</label>'
+    + '</section>';
+
+  const { JSDOM } = require('jsdom');
+  const url = 'https://www.coursera.org/learn/wireless-communications/assignment-submission/fryRH/practice-quiz-for-introduction-and-history-of-cellular-communication-systems/attempt';
+  const dom = new JSDOM('<!doctype html><html><body>' + html + '</body></html>', { url: url });
+  global.window = dom.window;
+  global.document = dom.window.document;
+  try {
+    Object.defineProperty(global, 'navigator', { value: dom.window.navigator, writable: true, configurable: true });
+  } catch (_) { global.navigator = dom.window.navigator; }
+
+  require('../lib/question-detector.js');
+  require('../lib/numbered-parser.js');
+  require('../lib/math-normalize.js');
+  require('../lib/module-scraper.js');
+  require('../lib/answer-applier.js');
+  require('../lib/ai-question-context.js');
+  require('../lib/ai-answer-validator.js');
+  require('../lib/sidebar.js');
+  require('../lib/ai-answer-controller.js');
+  dom.window.ClipboardCleaner = dom.window.ClipboardCleaner || {};
+  dom.window.ClipboardCleaner.questionDetector = require('../lib/question-detector.js');
+  dom.window.ClipboardCleaner.moduleScraper = require('../lib/module-scraper.js');
+  dom.window.ClipboardCleaner.answerApplier = require('../lib/answer-applier.js');
+  dom.window.ClipboardCleaner.aiQuestionContext = require('../lib/ai-question-context.js');
+  dom.window.ClipboardCleaner.aiAnswerValidator = require('../lib/ai-answer-validator.js');
+  dom.window.ClipboardCleaner.sidebar = require('../lib/sidebar.js');
+  dom.window.ClipboardCleaner.aiAnswerController = require('../lib/ai-answer-controller.js');
+  dom.window.ClipboardCleaner.sidebar.mount();
+  const a = dom.window.ClipboardCleaner;
+
+  const sentMessages = [];
+  let openOptionsCount = 0;
+  dom.window.chrome = {
+    runtime: {
+      sendMessage: function (msg, cb) {
+        sentMessages.push(msg);
+        if (msg && msg.type === 'ccp.ai.openOptions') {
+          openOptionsCount++;
+          if (cb) cb({ ok: true });
+          return;
+        }
+        if (msg && msg.command === 'keyStatus') {
+          if (cb) cb({ ok: true, keyPresent: true, remembered: true, accessMode: 'personal-key' });
+          return;
+        }
+        if (cb) cb({ ok: true });
+      }
+    }
+  };
+  global.chrome = dom.window.chrome;
+
+  const openOptionsFn = (function () {
+    const helper = require('../lib/ai-open-options-content.js');
+    return helper.createOpenOptionsCallback({ runtime: dom.window.chrome.runtime });
+  })();
+  const messenger = {
+    send: function (command, params, cb) {
+      try { dom.window.chrome.runtime.sendMessage({ type: 'ccp.ai.request', command: command, params: params || {} }, function (res) { cb(res || { ok: false, reason: 'no-response' }); }); }
+      catch (_) { cb({ ok: false, reason: 'send-failed' }); }
+    },
+  };
+  const controller = a.aiAnswerController.createAiController({
+    sidebar: a.sidebar,
+    questionContext: a.aiQuestionContext,
+    validator: a.aiAnswerValidator,
+    answerApplier: a.answerApplier,
+    messenger: messenger,
+    document: dom.window.document,
+    location: dom.window.location,
+    openOptionsFn: openOptionsFn,
+  });
+  controller.wire();
+  await new Promise(function (r) { setTimeout(r, 0); });
+
+  const host = dom.window.document.getElementById('ccp-host-root');
+  const shadow = host.shadowRoot || host;
+  const scan      = shadow.querySelector('[data-action="ai-scan"]');
+  const gen       = shadow.querySelector('[data-action="ai-generate"]');
+  const apply     = shadow.querySelector('[data-action="ai-apply"]');
+  const configure = shadow.querySelector('[data-action="ai-key-configure"]');
+  const statusEl  = shadow.querySelector('[data-role="ai-status"]');
+  const scanPrev  = shadow.querySelector('[data-role="ai-scan-preview"]');
+
+  // ASSERTION 1: Scan is enabled on the formerly-blocked URL.
+  assert.equal(scan.disabled, false, 'Scan questions must be enabled');
+
+  // ASSERTION 2: status text does NOT contain the old blocked-page message.
+  assert.equal((statusEl.textContent || '').indexOf('disabled on graded or blocked'), -1,
+    'status text must NOT contain the old blocked-page message');
+
+  // ASSERTION 3: native Scan click populates the preview with the question prompt.
+  scan.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true }));
+  await new Promise(function (r) { setTimeout(r, 0); });
+  assert.ok((scanPrev.textContent || '').indexOf(MARKER_Q1) !== -1,
+    'native Scan click must render the question prompt into the preview (got: ' + JSON.stringify(scanPrev.textContent) + ')');
+  assert.ok(scanPrev.querySelectorAll('li').length >= 1,
+    'native Scan click must render at least one preview list item');
+
+  // ASSERTION 4: after scan, Generate is enabled (key configured + actionable question).
+  assert.equal(gen.disabled, false, 'Generate must be enabled after scan with key configured');
+
+  // ASSERTION 5: U11 invariant preserved — Manage AI API Key still issues exactly one sanitized open-options message.
+  configure.click();
+  await new Promise(function (r) { setTimeout(r, 0); });
+  assert.equal(openOptionsCount, 1, 'Manage AI API Key click must issue exactly one ccp.ai.openOptions message');
+  const openMsgs = sentMessages.filter(function (m) { return m && m.type === 'ccp.ai.openOptions'; });
+  assert.deepEqual(openMsgs[0], { type: 'ccp.ai.openOptions' }, 'open-options message must be exactly {type:"ccp.ai.openOptions"} with no extra fields');
+
+  // ASSERTION 6: Apply stays disabled (no suggestions yet — orthogonal invariant, not related to blocking).
+  assert.equal(apply.disabled, true, 'Apply must remain disabled until suggestions exist');
+});
