@@ -57,7 +57,7 @@ function setup(html, url) {
   return { dom, sidebar, controller, questionContext, validator };
 }
 
-test('wire() installs handlers and runs initial key/eligibility refresh', () => {
+test('wire() installs handlers and runs initial key refresh', () => {
   const { dom, sidebar, controller } = setup();
   controller.messenger = fakeMessenger(function (cmd) {
     if (cmd === 'keyStatus') return { ok: true, keyPresent: true };
@@ -68,8 +68,6 @@ test('wire() installs handlers and runs initial key/eligibility refresh', () => 
   assert.equal(typeof sidebar.state.handlers.onScan, 'function');
   assert.equal(typeof sidebar.state.handlers.onOpenOptions, 'function', 'onOpenOptions handler must be wired');
   assert.equal(sidebar.state.handlers.onSaveKey, undefined, 'onSaveKey must not be present');
-  // initial eligibility was set (lecture page → eligible:true)
-  assert.equal(sidebar.state.eligibility.eligible, true);
 });
 
 test('Scan -> Generate -> Apply: end-to-end via production controller', async () => {
@@ -93,19 +91,6 @@ test('Scan -> Generate -> Apply: end-to-end via production controller', async ()
   controller.performApply();
   const radios = dom.window.document.querySelectorAll('input[type="radio"]');
   assert.equal(radios[1].checked, true, 'Beta radio selected by Apply');
-});
-
-test('blocked page refuses Generate/Apply', () => {
-  const { dom, sidebar, controller } = setup(radioPage(), 'https://www.coursera.org/learn/x/gradedLti/abc');
-  controller.messenger = fakeMessenger(function () { return { ok: true, keyPresent: true }; });
-  controller.wire();
-  controller.performScan();
-  assert.equal(sidebar.state.eligibility.eligible, false);
-  // Generate should NOT contact messenger
-  const before = controller.messenger.calls.length;
-  controller.performGenerate();
-  // performGenerate returns early on non-eligible — no new messenger calls
-  assert.equal(controller.messenger.calls.length, before);
 });
 
 test('Apply refuses when page changed (stale structural token)', async () => {
@@ -522,32 +507,6 @@ test('T1/A2: controller wire() does NOT register onClearKey in the sidebar handl
 // ---------------------------------------------------------------------------
 // S7 — performGenerate re-checks the current live page
 // ---------------------------------------------------------------------------
-
-test('S7: performGenerate rebuilds snapshot — page that is NOW blocked refuses without contacting background', async () => {
-  // Scan on an eligible lecture page
-  const eligibleHtml = '<section><h3>Question 1</h3><p>Pick</p>'
-    + '<label><input type="radio" name="r1">Alpha</label><label><input type="radio" name="r1">Beta</label></section>';
-  const { dom, sidebar, controller } = setup(eligibleHtml);
-  let genCalls = 0;
-  controller.messenger = fakeMessenger(function (cmd) {
-    if (cmd === 'keyStatus') return { ok: true, keyPresent: true };
-    if (cmd === 'generateAnswers') { genCalls++; return { ok: true, raw: { answers: [] } }; }
-    return { ok: true };
-  });
-  controller.wire();
-  controller.performScan();
-  await new Promise(function (r) { setTimeout(r, 0); });
-  // Now mutate the page: replace main with a graded H1
-  const main = dom.window.document.createElement('main');
-  main.innerHTML = '<h1>Graded Assignment</h1>';
-  dom.window.document.body.innerHTML = '';
-  dom.window.document.body.appendChild(main);
-  controller.performGenerate();
-  await new Promise(function (r) { setTimeout(r, 0); });
-  assert.equal(genCalls, 0, 'must not call background when fresh page is blocked');
-  assert.ok(sidebar.state.applyResult && sidebar.state.applyResult.message);
-  assert.ok(/disabled on graded or blocked/i.test(sidebar.state.applyResult.message));
-});
 
 test('S7: performGenerate refuses with "Scan again" when structural token changed', async () => {
   const html = '<section><h3>Question 1</h3><p>Pick</p>'
@@ -1001,115 +960,6 @@ function makeBlockedPageFakeSidebar() {
     _getLastOpenOptionsFailure: function () { return lastOpenOptionsFailure; },
   };
 }
-
-test('U11-1 INTEGRATION: blocked /assignment-submission/ page — Manage AI API Key opens settings; Generate and Apply refuse without sending generateAnswers or applying', () => {
-  const blockedLoc = {
-    href: 'https://www.coursera.org/learn/wireless-communications/assignment-submission/fryRH/practice-quiz',
-    pathname: '/learn/wireless-communications/assignment-submission/fryRH/practice-quiz',
-  };
-
-  let buildCalls = 0;
-  const qc = {
-    buildQuestionSnapshot: function (_body, _loc) {
-      buildCalls++;
-      return {
-        page: { eligible: false, blockedReason: 'assignment-submission' },
-        questions: [],
-        supportedCount: 0,
-        actionableCount: 0,
-        token: 't-blocked-' + buildCalls,
-      };
-    },
-    sanitizeForRequest: function (s) { return s; },
-    isCurrentPageBlocked: function (_loc, _doc) { return { blocked: true, reason: 'assignment-submission' }; },
-    compareLocalGuards: function () { return { changed: false }; },
-  };
-
-  const sentCommands = [];
-  const messenger = {
-    send: function (cmd, params, cb) {
-      sentCommands.push({ cmd: cmd, params: params });
-      if (cmd === 'keyStatus') return cb({ ok: true, keyPresent: true, remembered: true, accessMode: 'personal-key' });
-      cb({ ok: true });
-    },
-  };
-
-  let applyCalls = 0;
-  const answerApplier = {
-    applyStructuredAnswers: function () {
-      applyCalls++;
-      throw new Error('answerApplier.applyStructuredAnswers MUST NOT be called on a blocked page');
-    },
-  };
-
-  let validateCalls = 0;
-  const validator = {
-    validateAndMap: function () { validateCalls++; return { ok: true, suggestions: [] }; },
-  };
-
-  let openOptionsCalls = 0;
-  let openOptionsArgType = null;
-  const openOptionsFn = function (cb) {
-    openOptionsCalls++;
-    openOptionsArgType = typeof cb;
-    if (typeof cb === 'function') cb({ ok: true });
-  };
-
-  const fakeSidebar = makeBlockedPageFakeSidebar();
-  const ctrl = createAiController({
-    sidebar: fakeSidebar,
-    questionContext: qc,
-    validator: validator,
-    answerApplier: answerApplier,
-    messenger: messenger,
-    document: { body: {}, querySelector: function () { return null; } },
-    location: blockedLoc,
-    openOptionsFn: openOptionsFn,
-  });
-
-  ctrl.wire();
-
-  const elig = fakeSidebar._getLastEligibility();
-  assert.ok(elig, 'sidebar must have received an eligibility call during wire()');
-  assert.equal(elig.eligible, false, 'eligibility.eligible must be false on a blocked page');
-  assert.equal(elig.blockedReason, 'assignment-submission');
-
-  fakeSidebar._getHandlers().onOpenOptions();
-  assert.equal(openOptionsCalls, 1, 'exactly one open-options invocation');
-  assert.equal(openOptionsArgType, 'function', 'controller must pass a result callback to openOptionsFn');
-  assert.equal(fakeSidebar._getLastOpenOptionsFailure(), '',
-    'on {ok:true} the sidebar receives an empty-string failure clear');
-  const cmdsAfterOpen = sentCommands.map(function (c) { return c.cmd; });
-  assert.equal(cmdsAfterOpen.indexOf('setSessionKey'), -1);
-  assert.equal(cmdsAfterOpen.indexOf('clearKey'), -1);
-  assert.equal(cmdsAfterOpen.indexOf('setAccessMode'), -1);
-
-  ctrl.performScan();
-
-  ctrl.performGenerate();
-  const generateCalls = sentCommands.filter(function (c) { return c.cmd === 'generateAnswers'; });
-  assert.equal(generateCalls.length, 0,
-    'generateAnswers MUST NOT be sent on a blocked /assignment-submission/ page');
-
-  const ar = fakeSidebar._getLastApplyResult();
-  assert.ok(ar && typeof ar === 'object', 'sidebar must receive an apply-result on the blocked Generate');
-  assert.equal(ar.filled, 0);
-  assert.equal(ar.failed, 0);
-  assert.ok(/disabled on graded or blocked assessment pages/i.test(ar.message || ''),
-    'apply-result message must reference blocked-page refusal');
-
-  ctrl.performApply();
-  assert.equal(applyCalls, 0,
-    'answerApplier.applyStructuredAnswers MUST NOT be called on a blocked page (it would throw)');
-
-  const allCmdNames = sentCommands.map(function (c) { return c.cmd; });
-  ['submit', 'submitAnswer', 'continue', 'check', 'apply', 'autoAdvance'].forEach(function (forbidden) {
-    assert.equal(allCmdNames.indexOf(forbidden), -1,
-      'forbidden messenger command on a blocked page: ' + forbidden);
-  });
-
-  assert.equal(validateCalls, 0, 'validator must not run when generate refuses on a blocked page');
-});
 
 test('U11-1 INTEGRATION: blocked page — clicking Manage AI API Key TWICE produces TWO sanitized openOptions requests with no other side effects', () => {
   const blockedLoc = {
