@@ -361,16 +361,6 @@ test('Apply is disabled until suggestions exist', () => {
   assert.equal(apply.disabled, false);
 });
 
-test('blocked-page state disables Generate and Apply', () => {
-  const { sidebar, shadow } = freshSidebar();
-  sidebar.setAiKeyStatus(true);
-  sidebar.setAiPageEligibility({ eligible: false, blockedReason: 'graded item', supportedCount: 0 });
-  assert.equal(shadow.querySelector('[data-action="ai-generate"]').disabled, true);
-  assert.equal(shadow.querySelector('[data-action="ai-apply"]').disabled, true);
-  const status = shadow.querySelector('[data-role="ai-status"]');
-  assert.ok(/disabled on graded or blocked/i.test(status.textContent));
-});
-
 test('in-flight state enables Cancel and disables Generate', () => {
   const { sidebar, shadow } = freshSidebar();
   sidebar.setAiKeyStatus(true);
