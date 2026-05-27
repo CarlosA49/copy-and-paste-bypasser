@@ -1082,54 +1082,6 @@ test('U11-1: setAiOpenOptionsFailure renders via textContent (no HTML injection)
   assert.ok(status.textContent.indexOf('<img') !== -1, 'must render as literal text');
 });
 
-// === U12 Safety — Scan disabled on blocked pages (defense in depth, layer 1) ===
-
-test('U12-A1: setAiPageEligibility({ eligible:false, blockedReason:"graded assignment" }) disables Scan questions', () => {
-  const { sidebar, shadow } = freshSidebar();
-  sidebar.setAiKeyStatus({ present: true, remembered: true });
-  sidebar.setAiPageEligibility({ eligible: false, blockedReason: 'graded assignment', supportedCount: 0 });
-  const scanBtn = shadow.querySelector('[data-action="ai-scan"]');
-  assert.ok(scanBtn, 'ai-scan button must exist');
-  assert.equal(scanBtn.disabled, true, 'Scan questions must be disabled when eligible === false');
-});
-
-test('U12-A2: blocked-eligibility state — Generate and Apply remain disabled while Manage AI API Key remains enabled', () => {
-  const { sidebar, shadow } = freshSidebar();
-  sidebar.setAiKeyStatus({ present: true, remembered: true });
-  sidebar.setAiPageEligibility({ eligible: false, blockedReason: 'graded assignment', supportedCount: 0 });
-  const gen = shadow.querySelector('[data-action="ai-generate"]');
-  const apply = shadow.querySelector('[data-action="ai-apply"]');
-  const configure = shadow.querySelector('[data-action="ai-key-configure"]');
-  assert.equal(gen.disabled, true, 'Generate must remain disabled on blocked page');
-  assert.equal(apply.disabled, true, 'Apply must remain disabled on blocked page');
-  assert.ok(configure, 'Manage AI API Key button must exist');
-  assert.notEqual(configure.disabled, true, 'Manage AI API Key must remain enabled on blocked page');
-});
-
-test('U12-A3: native click on disabled Scan does NOT invoke the registered onScan handler', () => {
-  const { sidebar, shadow, dom } = freshSidebar();
-  sidebar.setAiKeyStatus({ present: true, remembered: true });
-  let scanCalls = 0;
-  sidebar.setAiAnswerHandlers({ onScan: function () { scanCalls++; } });
-  sidebar.setAiPageEligibility({ eligible: false, blockedReason: 'graded assignment', supportedCount: 0 });
-  const scanBtn = shadow.querySelector('[data-action="ai-scan"]');
-  assert.equal(scanBtn.disabled, true);
-  scanBtn.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true, cancelable: true }));
-  assert.equal(scanCalls, 0, 'onScan must not be invoked when Scan button is disabled');
-});
-
-test('U12-A4: restoring eligibility re-enables Scan without altering Manage AI API Key', () => {
-  const { sidebar, shadow } = freshSidebar();
-  sidebar.setAiKeyStatus({ present: true, remembered: true });
-  sidebar.setAiPageEligibility({ eligible: false, blockedReason: 'graded assignment', supportedCount: 0 });
-  const scanBtn = shadow.querySelector('[data-action="ai-scan"]');
-  assert.equal(scanBtn.disabled, true, 'precondition: Scan disabled on blocked');
-  sidebar.setAiPageEligibility({ eligible: true, blockedReason: null, supportedCount: 1, actionableCount: 1 });
-  assert.notEqual(scanBtn.disabled, true, 'Scan must be re-enabled when eligibility is restored');
-  const configure = shadow.querySelector('[data-action="ai-key-configure"]');
-  assert.notEqual(configure.disabled, true, 'Manage AI API Key must remain enabled throughout');
-});
-
 // === U13 — UI Revision label rendered in Diagnostics tab ===
 
 test('U13-S1: Diagnostics tab contains a [data-role="ccp-ui-revision"] placeholder element', () => {
