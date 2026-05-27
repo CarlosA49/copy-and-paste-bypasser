@@ -22,7 +22,7 @@
   position: fixed;
   top: 80px;
   right: 16px;
-  width: 360px;
+  width: min(440px, calc(100vw - 24px));
   min-width: 280px;
   max-width: 640px;
   height: calc(100vh - 120px);
@@ -109,21 +109,14 @@
   gap: 4px;
   padding: 8px 10px;
   border-bottom: 1px solid var(--ccp-border);
-  /* Horizontal scroll for an arbitrary number of tabs */
-  flex-wrap: nowrap;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: thin;
-  scrollbar-color: var(--ccp-accent-soft) transparent;
+  flex-wrap: wrap;
 }
-.ccp-tabs::-webkit-scrollbar { height: 6px; }
-.ccp-tabs::-webkit-scrollbar-track { background: transparent; }
-.ccp-tabs::-webkit-scrollbar-thumb { background: var(--ccp-accent-soft); border-radius: 3px; }
 
 .ccp-tab {
-  flex: 0 0 auto;
+  flex: 1 1 auto;
+  min-width: 0;
   white-space: nowrap;
-  padding: 8px 12px;
+  padding: 8px 10px;
   background: transparent;
   border: 1px solid transparent;
   color: var(--ccp-text-dim);
@@ -131,6 +124,7 @@
   font-weight: 500;
   border-radius: 8px;
   cursor: pointer;
+  text-align: center;
   transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
 }
 .ccp-tab:hover { color: var(--ccp-text); background: rgba(255,255,255,0.03); }
@@ -299,4 +293,119 @@
   border-radius: 999px;
   padding: 2px 8px;
   font-size: 11px;
+}
+
+/* === Let AI answer for you — card layout === */
+
+.ccp-ai-card {
+  background: var(--ccp-surface);
+  border: 1px solid var(--ccp-border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ccp-ai-card[hidden] { display: none; }
+
+.ccp-ai-card-header {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ccp-text);
+  letter-spacing: 0.2px;
+}
+
+.ccp-ai-status-pill {
+  display: inline-block;
+  align-self: flex-start;
+  background: var(--ccp-accent-soft);
+  border: 1px solid rgba(108, 140, 255, 0.3);
+  color: var(--ccp-text);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+
+.ccp-ai-note {
+  font-size: 11px;
+  color: var(--ccp-text-dim);
+  line-height: 1.45;
+}
+
+.ccp-ai-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ccp-ai-status-line {
+  font-size: 12px;
+  color: var(--ccp-text);
+  line-height: 1.45;
+  word-break: break-word;
+}
+.ccp-ai-status-line[data-tone="warn"] {
+  color: var(--ccp-danger);
+}
+
+.ccp-ai-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.ccp-ai-actions > .ccp-btn {
+  flex: 1 1 auto;
+  min-width: 0;
+  justify-content: center;
+}
+
+.ccp-ai-previews {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ccp-ai-preview-block {
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+.ccp-ai-preview-block:empty {
+  display: none;
+}
+.ccp-ai-preview-block ul {
+  margin: 4px 0;
+  padding-left: 18px;
+}
+.ccp-ai-preview-block li {
+  margin: 2px 0;
+}
+.ccp-ai-preview-block > div:first-child {
+  color: var(--ccp-text-dim);
+  font-size: 11.5px;
+  margin-bottom: 2px;
+}
+
+/* Hide the inflight action row entirely when its only child (Cancel) is hidden,
+   so the row's gap does not produce a visual gap when Cancel is not shown. */
+[data-card="ai-actions-inflight"]:has(> [hidden]:only-child) {
+  display: none;
+}
+
+.ccp-diag-build {
+  font-size: 11px;
+  color: var(--ccp-text-dim);
+  margin-bottom: 6px;
+  letter-spacing: 0.3px;
+}
+
+.ccp-ai-card--unavailable {
+  opacity: 0.7;
+}
+.ccp-ai-card--unavailable .ccp-ai-status-pill {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.08);
+  color: var(--ccp-text-dim);
 }

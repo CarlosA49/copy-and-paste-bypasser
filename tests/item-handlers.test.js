@@ -61,7 +61,7 @@ test('reading handler: dwells, optionally clicks Mark as completed, resolves', a
   const markBtn = doc.querySelector('button[aria-label="Mark as completed"]');
   const orig = markBtn.click.bind(markBtn);
   markBtn.click = function () { markedClicked = true; orig(); };
-  const out = await handlers.reading({ doc: doc, item: { id: 'r1', kind: 'reading' }, rng: rng, signal: mkSignal() });
+  const out = await handlers.reading({ doc: doc, item: { id: 'r1', kind: 'reading' }, rng: rng, signal: mkSignal(), behaviorMode: 'human' });
   assert.ok(scrolled.length > 0, 'should have scrolled');
   assert.equal(markedClicked, true, 'should click Mark as completed when present');
   assert.equal(out.outcome, 'reading-done');
@@ -77,8 +77,34 @@ test('reading handler: resolves with reading-auto when no Mark-complete button',
     timing: require('../lib/autopilot-timing.js'),
     replies: require('../lib/discussion-replies.js'),
   });
-  const out = await handlers.reading({ doc: doc, item: { id: 'r1', kind: 'reading' }, rng: seededRng(1), signal: mkSignal() });
+  const out = await handlers.reading({ doc: doc, item: { id: 'r1', kind: 'reading' }, rng: seededRng(1), signal: mkSignal(), behaviorMode: 'human' });
   assert.equal(out.outcome, 'reading-auto');
+});
+
+test('reading handler (Fast mode): clicks visible-text Mark as completed immediately without scrolling', async () => {
+  const doc = makeFakeDoc(
+    '<article data-testid="reading"><p>Recommended textbook</p></article>' +
+    '<button class="cds-button-primary"><span class="cds-button-label">Mark as completed</span></button>'
+  );
+  let clicked = false;
+  let scrolled = false;
+  doc.querySelector('button').addEventListener('click', function () { clicked = true; });
+  const handlers = createHandlers({
+    timing: require('../lib/autopilot-timing.js'),
+    pageFallback: require('../lib/page-fallback.js'),
+    sleep: function () { return Promise.resolve(); },
+    jitteredScroll: function () { scrolled = true; return Promise.resolve(); },
+  });
+  const out = await handlers.reading({
+    doc: doc,
+    item: { id: 'r1', kind: 'reading' },
+    rng: seededRng(1),
+    signal: mkSignal(),
+    behaviorMode: 'fast',
+  });
+  assert.equal(clicked, true);
+  assert.equal(scrolled, false);
+  assert.equal(out.outcome, 'reading-done-fast');
 });
 
 test('discussion handler: types reply via typingEngine + injector, submits, returns reply text', async () => {
@@ -241,7 +267,7 @@ test('video handler (short video): plays through, waits for ended, post-end dwel
   assert.ok(sleeps.length >= 1, 'should have post-end dwell');
 });
 
-test('video handler (long video): seeks immediately to ~1 min before end, no pre-skip dwell', async () => {
+test('video handler (long Human-mode video): watches the opening briefly, then seeks to ~1 min before end', async () => {
   const doc = new (require('jsdom').JSDOM)(
     '<!doctype html><body><video></video></body>',
     { url: 'https://www.coursera.org/learn/x/lecture/v2/long' }
@@ -278,8 +304,9 @@ test('video handler (long video): seeks immediately to ~1 min before end, no pre
   assert.equal(out.outcome, 'video-done');
   assert.equal(out.mode, 'seek');
   // Only the post-end dwell should have been awaited — no pre-skip sleep.
-  assert.equal(sleeps.length, 1, 'only post-end sleep, no pre-skip');
-  assert.ok(sleeps[0] >= 5000 && sleeps[0] <= 10000, 'post-end dwell in [5000, 10000] ms');
+  assert.equal(sleeps.length, 2, 'Human mode uses an opening-watch pause and a post-end pause');
+  assert.ok(sleeps[0] >= 5000 && sleeps[0] <= 12000, 'opening-watch pause in [5000, 12000] ms');
+  assert.ok(sleeps[1] >= 5000 && sleeps[1] <= 10000, 'post-end dwell in [5000, 10000] ms');
 });
 
 test('video handler: aborts mid-flight on signal abort (during ended wait)', async () => {
@@ -626,6 +653,34 @@ test('video handler (Fast mode): seeks to ~duration-45s and returns video-done-f
   assert.equal(Math.abs(ct - 135) < 2, true, 'currentTime should land near duration - 45');
 });
 
+test('video handler (Fast mode): seeks after duration becomes available once playback starts', async () => {
+  const { JSDOM } = require('jsdom');
+  const j = new JSDOM('<!doctype html><html><body><video></video></body></html>');
+  const doc = j.window.document;
+  const v = doc.querySelector('video');
+  let duration = NaN;
+  let ct = 0;
+  Object.defineProperty(v, 'duration', { get: function () { return duration; }, configurable: true });
+  Object.defineProperty(v, 'currentTime', { get: function () { return ct; }, set: function (x) { ct = x; }, configurable: true });
+  v.play = function () {
+    Promise.resolve().then(function () { duration = 180; });
+    return Promise.resolve();
+  };
+  const handlers = require('../lib/item-handlers.js').createHandlers({
+    timing: require('../lib/autopilot-timing.js'),
+    sleep: function () { return Promise.resolve(); },
+    jitteredScroll: function () { return Promise.resolve(); },
+  });
+  const r = await handlers.video({
+    doc: doc, item: { id: 'late-fast', kind: 'video' },
+    rng: function () { return 0.5; },
+    signal: { aborted: false, addEventListener: function () {}, removeEventListener: function () {} },
+    behaviorMode: 'fast',
+  });
+  assert.equal(r.mode, 'fast-seek');
+  assert.equal(ct, 135);
+});
+
 test('video handler (Fast mode): when currentTime ignored, clicks forward seek button enough times', async () => {
   const { JSDOM } = require('jsdom');
   const j = new JSDOM(
@@ -662,6 +717,48 @@ test('video handler (Fast mode): when currentTime ignored, clicks forward seek b
   assert.ok(clicks > 0, 'forward seek button should have been clicked');
 });
 
+test('video handler (Fast mode): paces forward-button clicks when the player updates asynchronously', async () => {
+  const { JSDOM } = require('jsdom');
+  const j = new JSDOM(
+    '<!doctype html><html><body>' +
+      '<video></video>' +
+      '<button aria-label="Seek Video Forward 10 seconds" data-fwd></button>' +
+    '</body></html>'
+  );
+  const doc = j.window.document;
+  const v = doc.querySelector('video');
+  Object.defineProperty(v, 'duration', { value: 180, configurable: true });
+  let ct = 0;
+  let acceptingClick = true;
+  Object.defineProperty(v, 'currentTime', {
+    get: function () { return ct; },
+    set: function (_) { /* direct seek ignored */ },
+    configurable: true,
+  });
+  v.play = function () { return Promise.resolve(); };
+  doc.querySelector('[data-fwd]').addEventListener('click', function () {
+    if (!acceptingClick) return;
+    acceptingClick = false;
+    Promise.resolve().then(function () {
+      ct += 10;
+      acceptingClick = true;
+    });
+  });
+  const handlers = require('../lib/item-handlers.js').createHandlers({
+    timing: require('../lib/autopilot-timing.js'),
+    sleep: function () { return Promise.resolve(); },
+    jitteredScroll: function () { return Promise.resolve(); },
+  });
+  const r = await handlers.video({
+    doc: doc, item: { id: 'async-forward', kind: 'video' },
+    rng: function () { return 0.5; },
+    signal: { aborted: false, addEventListener: function () {}, removeEventListener: function () {} },
+    behaviorMode: 'fast',
+  });
+  assert.equal(r.outcome, 'video-done-fast');
+  assert.ok(ct >= 130, 'paced fallback should advance close to the near-end target');
+});
+
 test('video handler (Human mode): falls through to existing video-done outcome (regression check)', async () => {
   const { JSDOM } = require('jsdom');
   const j = new JSDOM('<!doctype html><html><body><video></video></body></html>');
@@ -685,4 +782,285 @@ test('video handler (Human mode): falls through to existing video-done outcome (
   };
   const r = await handlers.video(ctx);
   assert.equal(r.outcome, 'video-done');
+});
+
+test('video handler (Human mode): waits for a newly loaded duration, then uses its opening-watch seek path', async () => {
+  const { JSDOM } = require('jsdom');
+  const j = new JSDOM('<!doctype html><html><body><video></video></body></html>');
+  const doc = j.window.document;
+  const v = doc.querySelector('video');
+  let duration = NaN;
+  let ct = 0;
+  Object.defineProperty(v, 'duration', { get: function () { return duration; }, configurable: true });
+  Object.defineProperty(v, 'currentTime', { get: function () { return ct; }, set: function (x) { ct = x; }, configurable: true });
+  v.play = function () {
+    Promise.resolve().then(function () { duration = 600; });
+    return Promise.resolve();
+  };
+  const sleeps = [];
+  const handlers = require('../lib/item-handlers.js').createHandlers({
+    timing: require('../lib/autopilot-timing.js'),
+    sleep: function (ms) { sleeps.push(ms); return Promise.resolve(); },
+    jitteredScroll: function () { return Promise.resolve(); },
+  });
+  const p = handlers.video({
+    doc: doc, item: { id: 'late-human', kind: 'video' },
+    rng: function () { return 0.5; },
+    signal: { aborted: false, addEventListener: function () {}, removeEventListener: function () {} },
+    behaviorMode: 'human',
+  });
+  await new Promise(function (resolve) { setTimeout(resolve, 0); });
+  assert.ok(ct >= 530 && ct <= 550, 'Human mode should seek after duration loads');
+  assert.ok(sleeps.some(function (ms) { return ms >= 5000 && ms <= 12000; }), 'Human mode should briefly watch before seeking');
+  v.dispatchEvent(new j.window.Event('ended'));
+  const r = await p;
+  assert.equal(r.outcome, 'video-done');
+  assert.equal(r.mode, 'seek');
+});
+
+test('video fast mode records element/play/duration/seek/outcome events with correct details', async () => {
+  const events = [];
+  const debugRecorder = { record: function (t, d) { events.push({ t: t, d: d }); } };
+  const dom = new JSDOM('<!doctype html><body><video id="v"></video></body>').window.document;
+  const v = dom.getElementById('v');
+  Object.defineProperty(v, 'duration', { value: 600, configurable: true });
+  Object.defineProperty(v, 'currentTime', { value: 0, writable: true, configurable: true });
+  v.play = function () { return Promise.resolve(); };
+  const h = createHandlers({
+    timing: {
+      fastVideoTiming: function () { return { mode: 'fast-seek', targetTimeSec: 555, postSeekWaitMs: 1 }; },
+      readingDwellMs: function () { return 1; },
+      discussionDwellMs: function () { return 1; },
+      videoTiming: function () { return { mode: 'play-through', preSkipMs: 0, targetTimeSec: 0, postEndMs: 0 }; },
+    },
+    sleep: function () { return Promise.resolve(); },
+    debugRecorder: debugRecorder,
+  });
+  const outcome = await h.video({ doc: dom, item: { id: 'vX', title: 'X', kind: 'video' }, rng: function () { return 0.5; }, behaviorMode: 'fast', signal: null });
+  assert.equal(outcome.outcome, 'video-done-fast');
+  const types = events.map(function (e) { return e.t; });
+  assert.ok(types.indexOf('handler.start') !== -1);
+  assert.ok(types.indexOf('video.element') !== -1);
+  assert.ok(types.indexOf('video.duration.wait.completed') !== -1);
+  assert.ok(types.indexOf('video.mode.selected') !== -1);
+  assert.ok(types.indexOf('video.seek.requested') !== -1);
+  assert.ok(types.indexOf('video.seek.direct.result') !== -1);
+  assert.ok(types.indexOf('handler.outcome') !== -1);
+  const seekResult = events.find(function (e) { return e.t === 'video.seek.direct.result'; });
+  assert.equal(seekResult.d.accepted, true);
+  assert.equal(seekResult.d.targetTime, 555);
+});
+
+test('video records video.element found=false when no <video> on page', async () => {
+  const events = [];
+  const debugRecorder = { record: function (t, d) { events.push({ t: t, d: d }); } };
+  const dom = new JSDOM('<!doctype html><body></body>').window.document;
+  const h = createHandlers({ timing: {}, sleep: function () { return Promise.resolve(); }, debugRecorder: debugRecorder });
+  const outcome = await h.video({ doc: dom, item: { id: 'x', kind: 'video' }, rng: function () { return 0; }, behaviorMode: 'fast', signal: null });
+  assert.equal(outcome.outcome, 'video-no-element');
+  const ve = events.find(function (e) { return e.t === 'video.element'; });
+  assert.equal(ve.d.found, false);
+});
+
+test('reading records handler.start and handler.outcome', async () => {
+  const events = [];
+  const debugRecorder = { record: function (t, d) { events.push({ t: t, d: d }); } };
+  const dom = new JSDOM('<!doctype html><body><button aria-label="Mark as completed">Mark as completed</button></body>').window.document;
+  const h = createHandlers({
+    timing: { readingDwellMs: function () { return 1; } },
+    sleep: function () { return Promise.resolve(); },
+    jitteredScroll: function () { return Promise.resolve(); },
+    debugRecorder: debugRecorder,
+  });
+  const outcome = await h.reading({ doc: dom, item: { id: 'r1', kind: 'reading', title: 'R' }, rng: function () { return 0; }, behaviorMode: 'fast', signal: null });
+  assert.ok(/reading/.test(outcome.outcome));
+  assert.ok(events.some(function (e) { return e.t === 'handler.start'; }));
+  assert.ok(events.some(function (e) { return e.t === 'handler.outcome'; }));
+});
+
+test('video handler still works when debugRecorder is omitted (no regression)', async () => {
+  const dom = new JSDOM('<!doctype html><body><video id="v"></video></body>').window.document;
+  const v = dom.getElementById('v');
+  Object.defineProperty(v, 'duration', { value: 600, configurable: true });
+  v.play = function () { return Promise.resolve(); };
+  const h = createHandlers({
+    timing: { fastVideoTiming: function () { return { mode: 'play-through', targetTimeSec: 0, postSeekWaitMs: 1 }; } },
+    sleep: function () { return Promise.resolve(); },
+  });
+  const outcome = await h.video({ doc: dom, item: { id: 'x', kind: 'video' }, rng: function () { return 0; }, behaviorMode: 'fast', signal: null });
+  assert.equal(outcome.outcome, 'video-done-fast');
+});
+
+// ===========================================================================
+// PHASE 4 — Video element readiness wait.
+// In real Coursera the destination <video> element is mounted by React a few
+// hundred milliseconds AFTER SPA navigation completes. The handler used to
+// query once and return video-no-element on a miss. The wait makes the
+// handler poll for a bounded window, abort-aware via the signal.
+// ===========================================================================
+
+function _attachVideo(dom) {
+  const v = dom.createElement('video');
+  dom.body.appendChild(v);
+  Object.defineProperty(v, 'duration', { value: 600, configurable: true });
+  Object.defineProperty(v, 'currentTime', { value: 0, writable: true, configurable: true });
+  v.play = function () { return Promise.resolve(); };
+  return v;
+}
+
+test('REGRESSION: Fast video tolerates a delayed <video> mount via bounded readiness poll', async () => {
+  const events = [];
+  const debugRecorder = { record: function (t, d) { events.push({ t: t, d: d }); } };
+  const dom = new JSDOM('<!doctype html><body></body>').window.document;
+  let sleepCount = 0;
+  const sleep = function () {
+    sleepCount += 1;
+    // Mount the destination <video> after a few polls.
+    if (sleepCount === 3) { _attachVideo(dom); }
+    return Promise.resolve();
+  };
+  const h = createHandlers({
+    timing: { fastVideoTiming: function () { return { mode: 'fast-seek', targetTimeSec: 555, postSeekWaitMs: 1 }; } },
+    sleep: sleep,
+    debugRecorder: debugRecorder,
+    videoElementTimeoutMs: 2000,
+    videoElementPollMs: 5,
+  });
+  const outcome = await h.video({ doc: dom, item: { id: '7Gsua', title: 'Arithmetic Part 2', kind: 'video' }, rng: function () { return 0.5; }, behaviorMode: 'fast', signal: null });
+  assert.equal(outcome.outcome, 'video-done-fast', 'handler must succeed after the delayed mount');
+  const types = events.map(function (e) { return e.t; });
+  assert.ok(types.indexOf('video.element.wait.started') !== -1, 'wait.started must be recorded');
+  const completed = events.find(function (e) { return e.t === 'video.element.wait.completed'; });
+  assert.ok(completed, 'wait.completed must be recorded');
+  assert.equal(completed.d.found, true);
+  assert.ok(completed.d.polls >= 1, 'polls must be > 0 for a delayed mount');
+  // video.element backward-compat: still emitted after the wait, with found=true.
+  const elEvt = events.find(function (e) { return e.t === 'video.element'; });
+  assert.equal(elEvt && elEvt.d.found, true);
+});
+
+test('REGRESSION: Fast video with an immediately present <video> does not waste polls', async () => {
+  const events = [];
+  const debugRecorder = { record: function (t, d) { events.push({ t: t, d: d }); } };
+  const dom = new JSDOM('<!doctype html><body></body>').window.document;
+  _attachVideo(dom);
+  let sleepCount = 0;
+  const h = createHandlers({
+    timing: { fastVideoTiming: function () { return { mode: 'fast-seek', targetTimeSec: 555, postSeekWaitMs: 1 }; } },
+    sleep: function () { sleepCount += 1; return Promise.resolve(); },
+    debugRecorder: debugRecorder,
+    videoElementTimeoutMs: 2000,
+    videoElementPollMs: 5,
+  });
+  const outcome = await h.video({ doc: dom, item: { id: 'x', kind: 'video' }, rng: function () { return 0.5; }, behaviorMode: 'fast', signal: null });
+  assert.equal(outcome.outcome, 'video-done-fast');
+  const completed = events.find(function (e) { return e.t === 'video.element.wait.completed'; });
+  assert.ok(completed, 'wait.completed must still be recorded for backward-compat snapshot');
+  assert.equal(completed.d.polls, 0, 'no polls should run when the element is already present');
+});
+
+test('REGRESSION: Fast video pauses cleanly when <video> never mounts within the readiness timeout', async () => {
+  const events = [];
+  const debugRecorder = { record: function (t, d) { events.push({ t: t, d: d }); } };
+  const dom = new JSDOM('<!doctype html><body></body>').window.document;
+  let sleepCount = 0;
+  // Track wall-clock so the wait can time out without real delay.
+  let nowVal = 0;
+  const sleep = function () { sleepCount += 1; nowVal += 50; return Promise.resolve(); };
+  const h = createHandlers({
+    timing: { fastVideoTiming: function () { return { mode: 'play-through', targetTimeSec: 0, postSeekWaitMs: 1 }; } },
+    sleep: sleep,
+    debugRecorder: debugRecorder,
+    videoElementTimeoutMs: 100,
+    videoElementPollMs: 5,
+    nowFn: function () { return nowVal; },
+  });
+  const outcome = await h.video({ doc: dom, item: { id: 'x', kind: 'video' }, rng: function () { return 0.5; }, behaviorMode: 'fast', signal: null });
+  assert.equal(outcome.outcome, 'video-no-element', 'must end with the no-element outcome');
+  const timeout = events.find(function (e) { return e.t === 'video.element.wait.timeout'; });
+  assert.ok(timeout, 'wait.timeout must be recorded');
+  assert.equal(timeout.d.found, false);
+  assert.ok(typeof timeout.d.elapsedMs === 'number');
+  assert.ok(sleepCount > 0 && sleepCount < 100, 'must NOT loop forever');
+});
+
+test('REGRESSION: Fast video readiness wait aborts promptly when signal fires', async () => {
+  const events = [];
+  const debugRecorder = { record: function (t, d) { events.push({ t: t, d: d }); } };
+  const dom = new JSDOM('<!doctype html><body></body>').window.document;
+  const controller = (typeof AbortController === 'function') ? new AbortController() : { signal: { aborted: false, addEventListener: function () {} }, abort: function () { this.signal.aborted = true; } };
+  let sleepCount = 0;
+  const sleep = function (_ms, signal) {
+    sleepCount += 1;
+    if (sleepCount === 2 && controller && controller.abort) controller.abort();
+    if (signal && signal.aborted) return Promise.reject(new Error('aborted'));
+    return Promise.resolve();
+  };
+  const h = createHandlers({
+    timing: { fastVideoTiming: function () { return { mode: 'play-through', targetTimeSec: 0, postSeekWaitMs: 1 }; } },
+    sleep: sleep,
+    debugRecorder: debugRecorder,
+    videoElementTimeoutMs: 5000,
+    videoElementPollMs: 5,
+  });
+  const outcome = await h.video({ doc: dom, item: { id: 'x', kind: 'video' }, rng: function () { return 0.5; }, behaviorMode: 'fast', signal: controller.signal });
+  assert.equal(outcome.outcome, 'video-no-element');
+  const aborted = events.find(function (e) { return e.t === 'video.element.wait.aborted'; });
+  assert.ok(aborted, 'wait.aborted must be recorded');
+  // Once aborted, no further play/seek/duration events should appear.
+  const types = events.map(function (e) { return e.t; });
+  assert.equal(types.indexOf('video.play.requested'), -1, 'must NOT request play after abort');
+  assert.equal(types.indexOf('video.seek.requested'), -1, 'must NOT request seek after abort');
+});
+
+test('REGRESSION: Human video also tolerates delayed <video> mount without changing its timing semantics', async () => {
+  const events = [];
+  const debugRecorder = { record: function (t, d) { events.push({ t: t, d: d }); } };
+  const dom = new JSDOM('<!doctype html><body></body>').window.document;
+  let sleepCount = 0;
+  const sleep = function () {
+    sleepCount += 1;
+    if (sleepCount === 2) { _attachVideo(dom); }
+    return Promise.resolve();
+  };
+  const h = createHandlers({
+    timing: {
+      videoTiming: function () { return { mode: 'play-through', preSkipMs: 0, targetTimeSec: 0, postEndMs: 0 }; },
+      fastVideoTiming: function () { return { mode: 'play-through', targetTimeSec: 0, postSeekWaitMs: 0 }; },
+    },
+    sleep: sleep,
+    debugRecorder: debugRecorder,
+    videoElementTimeoutMs: 2000,
+    videoElementPollMs: 5,
+  });
+  // Human mode currently waits for 'ended'. To keep this test deterministic,
+  // dispatch the ended event right after the wait succeeds.
+  const origAttach = _attachVideo;
+  // Monkey-patch sleep to fire 'ended' once the video is mounted.
+  let endedFired = false;
+  const sleep2 = function () {
+    sleepCount += 1;
+    if (sleepCount === 2 && !dom.querySelector('video')) {
+      const v = _attachVideo(dom);
+      // Fire 'ended' on next tick so the human path's Promise.race resolves.
+      setTimeout(function () { if (!endedFired) { endedFired = true; v.dispatchEvent(new dom.defaultView.Event('ended')); } }, 0);
+    }
+    return Promise.resolve();
+  };
+  const h2 = createHandlers({
+    timing: {
+      videoTiming: function () { return { mode: 'play-through', preSkipMs: 0, targetTimeSec: 0, postEndMs: 0 }; },
+      fastVideoTiming: function () { return { mode: 'play-through', targetTimeSec: 0, postSeekWaitMs: 0 }; },
+    },
+    sleep: sleep2,
+    debugRecorder: debugRecorder,
+    videoElementTimeoutMs: 2000,
+    videoElementPollMs: 5,
+  });
+  sleepCount = 0;
+  const outcome = await h2.video({ doc: dom, item: { id: 'x', kind: 'video' }, rng: function () { return 0.5; }, behaviorMode: 'human', signal: null });
+  assert.equal(outcome.outcome, 'video-done', 'human path must complete after delayed mount');
+  const completed = events.find(function (e) { return e.t === 'video.element.wait.completed'; });
+  assert.ok(completed, 'human path also records the readiness wait');
+  assert.equal(completed.d.found, true);
 });

@@ -50,12 +50,12 @@ test('videoTiming: just-below-threshold duration (89) -> play-through', () => {
   }
 });
 
-test('videoTiming: long video -> seek mode, preSkipMs=0, target in (duration-70, duration-50)', () => {
+test('videoTiming: long video -> seek mode after a short opening watch, target near end', () => {
   const rng = seededRng(1);
   const duration = 600;
   const r = videoTiming(duration, rng);
   assert.equal(r.mode, 'seek');
-  assert.equal(r.preSkipMs, 0, 'new simpler model has no pre-skip dwell');
+  assert.ok(r.preSkipMs >= 5000 && r.preSkipMs <= 12000, 'Human mode watches the opening briefly before seeking');
   assert.ok(r.targetTimeSec >= duration - 70 && r.targetTimeSec <= duration - 50,
     'targetTimeSec ' + r.targetTimeSec + ' should be in [duration-70, duration-50]');
   assert.ok(r.postEndMs >= 5000 && r.postEndMs <= 10000);
@@ -65,7 +65,7 @@ test('videoTiming: boundary duration (90) -> seek mode (threshold is inclusive a
   // 90 is NOT < 90, so it enters seek mode. targetTime = 90 - seekFromEnd(50..70) = 20..40.
   const r = videoTiming(90, seededRng(1));
   assert.equal(r.mode, 'seek');
-  assert.equal(r.preSkipMs, 0);
+  assert.ok(r.preSkipMs >= 5000 && r.preSkipMs <= 12000);
   assert.ok(r.targetTimeSec >= 20 && r.targetTimeSec <= 40);
 });
 
@@ -113,6 +113,7 @@ test('scrollStep returns intervalMs in [3000, 8000] and pixels in [200, 500]', (
 test('exports RANGES and constants', () => {
   assert.deepEqual(RANGES.videoSeekFromEndSec, [50, 70]);
   assert.deepEqual(RANGES.videoPostEndSec, [5, 10]);
+  assert.deepEqual(RANGES.videoInitialWatchSec, [5, 12]);
   assert.equal(MIN_VIDEO_DURATION_FOR_SKIP_SEC, 90);
 });
 

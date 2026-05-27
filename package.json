@@ -8,5 +8,8 @@
   },
   "devDependencies": {
     "jsdom": "^29.1.1"
+  },
+  "dependencies": {
+    "dom-extractor": "^0.0.14"
   }
 }

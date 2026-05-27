@@ -1,6 +1,7 @@
 // tests/completion-confirmer.test.js
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const { JSDOM } = require('jsdom');
 const { createConfirmer } = require('../lib/completion-confirmer.js');
 
 function mkSignal() {
@@ -144,4 +145,60 @@ test('waitForCompletion: top-progress count increase counts as confirmation', as
     timeoutMs: 60000, pollIntervalMs: 1,
   });
   assert.equal(r, true);
+});
+
+test('waitForCompletion: reading page Completed indicator confirms a reading after Mark as completed', async () => {
+  const j = new JSDOM('<!doctype html><html><body><h3 aria-label="Reading completed">Completed</h3></body></html>');
+  const pageFallback = require('../lib/page-fallback.js');
+  const scraper = { findItemCompletionIndicator: function () { return null; } };
+  const confirmer = createConfirmer({ sleep: function () { return Promise.resolve(); } });
+  const ok = await confirmer.waitForCompletion({
+    doc: j.window.document,
+    itemId: 'r1',
+    itemKind: 'reading',
+    scraper: scraper,
+    pageFallback: pageFallback,
+    signal: mkSignal(),
+    timeoutMs: 100,
+    pollIntervalMs: 1,
+  });
+  assert.equal(ok, true);
+});
+
+test('confirmer records completion.wait.started and completion.detected with evidence kind', async () => {
+  const events = [];
+  const debugRecorder = { record: function (t, d) { events.push({ t: t, d: d }); } };
+  const dom = new JSDOM('<!doctype html><div data-testid="completed-v1"></div>').window.document;
+  const scraper = {
+    findItemCompletionIndicator: function (doc, id) {
+      return id === 'v1' ? doc.querySelector('[data-testid="completed-v1"]') : null;
+    },
+  };
+  const conf = createConfirmer({ debugRecorder: debugRecorder });
+  const ok = await conf.waitForCompletion({ doc: dom, itemId: 'v1', itemKind: 'video', scraper: scraper, timeoutMs: 500, pollIntervalMs: 10 });
+  assert.equal(ok, true);
+  const types = events.map(function (e) { return e.t; });
+  assert.ok(types.indexOf('completion.wait.started') !== -1, 'wait.started recorded');
+  const detected = events.find(function (e) { return e.t === 'completion.detected'; });
+  assert.ok(detected, 'detected recorded');
+  assert.equal(detected.d.itemId, 'v1');
+  assert.equal(detected.d.evidence, 'item-indicator');
+});
+
+test('confirmer records completion.timeout when nothing matches', async () => {
+  const events = [];
+  const debugRecorder = { record: function (t, d) { events.push({ t: t, d: d }); } };
+  const dom = new JSDOM('<!doctype html><div/>').window.document;
+  const scraper = { findItemCompletionIndicator: function () { return null; } };
+  const conf = createConfirmer({ debugRecorder: debugRecorder });
+  const ok = await conf.waitForCompletion({ doc: dom, itemId: 'v1', itemKind: 'video', scraper: scraper, timeoutMs: 30, pollIntervalMs: 5 });
+  assert.equal(ok, false);
+  assert.ok(events.some(function (e) { return e.t === 'completion.timeout'; }), 'timeout recorded');
+});
+
+test('confirmer never throws even when debugRecorder is undefined (no regression)', async () => {
+  const dom = new JSDOM('<!doctype html><div/>').window.document;
+  const conf = createConfirmer({});
+  const ok = await conf.waitForCompletion({ doc: dom, itemId: 'v1', itemKind: 'video', scraper: { findItemCompletionIndicator: function () { return null; } }, timeoutMs: 30, pollIntervalMs: 5 });
+  assert.equal(ok, false);
 });

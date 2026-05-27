@@ -431,6 +431,18 @@ test('parseRowText handles "Introduction to Matrices and OperatorsVideo. Duratio
   assert.equal(r.kind, 'video');
 });
 
+test('parseRowText does not classify the LAB in MATLAB as a programming item', () => {
+  const r = parseRowText('Lesson 1: The MATLAB EnvironmentReading. Duration: 10 minutes10 min');
+  assert.equal(r.title, 'Lesson 1: The MATLAB Environment');
+  assert.equal(r.kind, 'reading');
+});
+
+test('parseRowText uses the trailing activity type rather than a type word in the title', () => {
+  const r = parseRowText('Introduction to ProgrammingReading. Duration: 10 minutes10 min');
+  assert.equal(r.title, 'Introduction to Programming');
+  assert.equal(r.kind, 'reading');
+});
+
 test('parseRowText strips leading "Completed" / "Not completed" status word', () => {
   const r1 = parseRowText('CompletedSyllabusReading. Duration: 10 min');
   assert.equal(r1.title, 'Syllabus');
@@ -453,6 +465,22 @@ test('parseRowText returns kind:null and full text as title when no kind keyword
   assert.equal(r.title, 'Just some random row text');
   assert.equal(r.kind, null);
   assert.equal(r.meta, null);
+});
+
+test('parseRowText splits Graded App Item rows like "Assignment: Matrix IndexingGraded App Item. Duration: 15 minutes15 min"', () => {
+  // Real Coursera concatenates the visible title with the "Graded App Item"
+  // type label and duration; the blocked-item skip log must show only the
+  // clean title.
+  const r = parseRowText('Assignment: Matrix IndexingGraded App Item. Duration: 15 minutes15 min');
+  assert.equal(r.title, 'Assignment: Matrix Indexing');
+  assert.equal(r.kind, 'assignment');
+  assert.ok(/Graded App Item/.test(r.meta));
+});
+
+test('parseRowText recognizes plain "App Item" as a blocked-style activity label', () => {
+  const r = parseRowText('Assignment: WhateverApp Item. Duration: 30 min');
+  assert.equal(r.title, 'Assignment: Whatever');
+  assert.equal(r.kind, 'assignment');
 });
 
 const { findAccordionHeaders } = require('../lib/module-scraper.js');
@@ -610,6 +638,27 @@ test('extractItemsFromPanel marks items completed when aria-label="Completed" in
         '<div class="outline-single-item-content-wrapper">' +
           '<div><div>Title B</div><div>Video. 2 min</div></div>' +
           '<span aria-label="Not completed"></span>' +
+        '</div>' +
+      '</a></li>' +
+    '</ul></div>'
+  );
+  const items = extractItemsFromPanel(d.getElementById('p'));
+  assert.equal(items[0].completed, true);
+  assert.equal(items[1].completed, false);
+});
+
+test('extractItemsFromPanel marks a Coursera row green check svg as completed', () => {
+  const d = dom(
+    '<div id="p"><ul>' +
+      '<li><a href="/learn/matlab/lecture/v1/course-preview">' +
+        '<div class="outline-single-item-content-wrapper">' +
+          '<div><div>Course Preview</div><div>Video. Duration: 2 min</div></div>' +
+          '<svg style="color: rgb(39, 106, 26);"><path></path></svg>' +
+        '</div>' +
+      '</a></li>' +
+      '<li><a href="/learn/matlab/supplement/r1/recommended-textbook">' +
+        '<div class="outline-single-item-content-wrapper">' +
+          '<div><div>Recommended Textbook</div><div>Reading. Duration: 10 min</div></div>' +
         '</div>' +
       '</a></li>' +
     '</ul></div>'

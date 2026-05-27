@@ -3,7 +3,15 @@
   "name": "Clipboard Cleaner",
   "version": "1.0.0",
   "description": "Strips injected copyright/warning lines from copied text on Coursera and similar sites.",
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
   "permissions": ["storage"],
+  "host_permissions": ["https://api.deepseek.com/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
@@ -25,13 +33,26 @@
         "lib/answer-parser.js",
         "lib/answer-matcher.js",
         "lib/autopilot-timing.js",
+        "lib/autopilot-debug.js",
         "lib/discussion-replies.js",
         "lib/autopilot-state.js",
+        "lib/autopilot-authority.js",
+        "lib/autopilot-messenger.js",
         "lib/module-scraper.js",
         "lib/page-fallback.js",
         "lib/item-handlers.js",
         "lib/completion-confirmer.js",
         "lib/module-autopilot.js",
+        "lib/question-detector.js",
+        "lib/numbered-parser.js",
+        "lib/math-normalize.js",
+        "lib/answer-applier.js",
+        "lib/ai-question-context.js",
+        "lib/ai-answer-validator.js",
+        "lib/ai-answer-controller.js",
+        "lib/ai-content-listeners.js",
+        "lib/ai-open-options-content.js",
+        "lib/ui-revision.js",
         "lib/sidebar.js",
         "lib/autopilot-input-guard.js",
         "content.js"
