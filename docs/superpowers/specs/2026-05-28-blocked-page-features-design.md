@@ -37,11 +37,11 @@ Three production files change, one new invariant:
 | File | Change |
 |---|---|
 | `lib/sidebar.js` | `_renderAiButtonStates()` drops the `eligible === false` term from scan/generate/apply guards. Remove the U12 click-handler guard `if (scan.disabled) return;` inside `wireAiAnswer()`. Remove the status-text branch in `setAiPageEligibility` that renders the blocked-page message. |
-| `lib/ai-answer-controller.js` | Delete the U12 blocked-page early-return blocks at the top of `performScan`, `performGenerate`, `performApply`. |
+| `lib/ai-answer-controller.js` | Delete the U12 blocked-page early-return blocks at the top of `performScan`, `performGenerate`, `performApply`. Also delete the `wire()` initial-eligibility call to `qc.isCurrentPageBlocked` (lines ~207-209); the first scan populates eligibility from the snapshot. The `fresh.page.eligible === false` dead branches in `performGenerate` (lines ~75-84) and `performApply` (lines ~127-130) become unreachable and are deleted with the rest. |
 | `lib/ai-question-context.js` | Delete the `isCurrentPageBlocked` short-circuit at the top of `buildQuestionSnapshot`. Always build the snapshot from `detectQuestions`. Returned `page.eligible` is hard-set to `true` and `page.blockedReason` to `null`. |
 | `tests/sidebar.test.js` | Delete U12-A1, A2, A3, A4. |
 | `tests/ai-answer-controller.test.js` | Delete U12-B1..B5. Repurpose U12-B6 — drop its blocked-page precondition; assert Manage AI API Key click count is unaffected by `performScan` on any page. |
-| `tests/ai-question-context.test.js` | Delete U12-C1, C2, C3, C4. Keep C5 unchanged. |
+| `tests/ai-question-context.test.js` | Delete U12-C1, C2, C3, C4, **C6, C7, C8, C9, C10, C11** (visible-block markers). Keep C5 unchanged. |
 | `tests/ai-answer-tab.test.js` | Delete U12-LIVE, U13-D1, U13-D2. Add one new positive-case test `U14-LIVE` (see Section 4). |
 
 ### Untouched
@@ -174,7 +174,7 @@ The U11 one-card visibility invariant is already covered by existing tests outsi
 
 After the changes:
 - `npm test` is green.
-- Net test count change: roughly -22 (deleted U12/U13 assertions) +1 (U14-LIVE) +0 (U12-B6 renamed in-place to U14-B6).
+- Net test count change: roughly -28 (deleted U12/U13 assertions, including six visible-block C-tests) +1 (U14-LIVE) +0 (U12-B6 renamed in-place to U14-B6).
 - No Autopilot, `ui-revision`, or AI-options/background/listeners test is touched.
 
 ---
