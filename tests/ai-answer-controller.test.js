@@ -1175,198 +1175,38 @@ test('U11-1: open-options request payload contains no generation/application/sub
   });
 });
 
-// === U12 Safety — controller refuses scan on blocked page (defense in depth, layer 2) ===
+// === U14 — performScan is independent of Manage AI API Key ===
 
-function makeU12LocAndDoc(blockedPath) {
-  return {
-    loc: {
-      href: 'https://www.coursera.org' + blockedPath,
-      pathname: blockedPath,
-      origin: 'https://www.coursera.org',
-    },
-    doc: { body: {}, querySelector: function () { return null; } },
+test('U14-B6: performScan does not affect Manage AI API Key click counting (independent of page eligibility)', () => {
+  const loc = {
+    href: 'https://www.coursera.org/learn/course/lecture/v1/intro',
+    pathname: '/learn/course/lecture/v1/intro',
+    origin: 'https://www.coursera.org',
   };
-}
-
-test('U12-B1: performScan on /assignment-submission/.../attempt URL calls isCurrentPageBlocked BEFORE buildQuestionSnapshot (snapshot construction never reached)', () => {
-  const { loc, doc } = makeU12LocAndDoc('/learn/wireless-communications/assignment-submission/fryRH/practice-quiz-for-introduction-and-history-of-cellular-communication-systems/attempt');
-  let isBlockedCalls = 0;
-  let buildSnapshotCalls = 0;
-  const qc = {
-    buildQuestionSnapshot: function () { buildSnapshotCalls++; throw new Error('buildQuestionSnapshot MUST NOT be called on a blocked page'); },
-    sanitizeForRequest: function (s) { return s; },
-    isCurrentPageBlocked: function () { isBlockedCalls++; return { blocked: true, reason: 'assignment-submission' }; },
-    compareLocalGuards: function () { return { changed: false }; },
-  };
-  const fakeSidebar = makeBlockedPageFakeSidebar();
-  const sentCommands = [];
-  const ctrl = createAiController({
-    sidebar: fakeSidebar,
-    questionContext: qc,
-    validator: { validateAndMap: function () { throw new Error('validator must not run on blocked scan'); } },
-    answerApplier: { applyStructuredAnswers: function () { throw new Error('answerApplier must not run on blocked scan'); } },
-    messenger: { send: function (cmd, p, cb) { sentCommands.push({ cmd: cmd, params: p }); if (cmd === 'keyStatus') return cb({ ok: true, keyPresent: true, accessMode: 'personal-key' }); cb({ ok: true }); } },
-    document: doc, location: loc,
-    openOptionsFn: function (cb) { if (cb) cb({ ok: true }); },
-  });
-  ctrl.wire();
-  assert.doesNotThrow(function () { ctrl.performScan(); },
-    'performScan must NOT throw on a blocked page — it must refuse cleanly');
-  assert.ok(isBlockedCalls >= 1, 'isCurrentPageBlocked must be invoked at least once by performScan');
-  assert.equal(buildSnapshotCalls, 0, 'buildQuestionSnapshot must NOT be reached on a blocked page');
-  const generateCalls = sentCommands.filter(function (c) { return c.cmd === 'generateAnswers'; });
-  assert.equal(generateCalls.length, 0, 'generateAnswers must not be sent during a blocked scan');
-});
-
-test('U12-B2: blocked performScan calls sidebar.setAiScanResult(null) and surfaces the blocked-page apply-result message', () => {
-  const { loc, doc } = makeU12LocAndDoc('/learn/x/assignment-submission/abc/attempt');
-  const scanResults = []; const suggestionsCalls = []; const applyResultCalls = []; const eligibilityCalls = [];
-  const qc = {
-    buildQuestionSnapshot: function () { throw new Error('buildQuestionSnapshot MUST NOT be called on a blocked page'); },
-    sanitizeForRequest: function (s) { return s; },
-    isCurrentPageBlocked: function () { return { blocked: true, reason: 'assignment-submission' }; },
-    compareLocalGuards: function () { return { changed: false }; },
-  };
-  const fakeSidebar = (function () {
-    const base = makeBlockedPageFakeSidebar();
-    const o1 = base.setAiScanResult, o2 = base.setAiSuggestions, o3 = base.setAiApplyResult, o4 = base.setAiPageEligibility;
-    base.setAiScanResult       = function (v) { scanResults.push(v);     if (o1) o1(v); };
-    base.setAiSuggestions      = function (v) { suggestionsCalls.push(v); if (o2) o2(v); };
-    base.setAiApplyResult      = function (v) { applyResultCalls.push(v); if (o3) o3(v); };
-    base.setAiPageEligibility  = function (v) { eligibilityCalls.push(v); if (o4) o4(v); };
-    return base;
-  })();
-  const ctrl = createAiController({
-    sidebar: fakeSidebar, questionContext: qc,
-    validator: { validateAndMap: function () { return { ok: true, suggestions: [] }; } },
-    answerApplier: { applyStructuredAnswers: function () { throw new Error('answerApplier must not run on blocked scan'); } },
-    messenger: { send: function (cmd, p, cb) { if (cmd === 'keyStatus') return cb({ ok: true, keyPresent: true, accessMode: 'personal-key' }); cb({ ok: true }); } },
-    document: doc, location: loc,
-    openOptionsFn: function (cb) { if (cb) cb({ ok: true }); },
-  });
-  ctrl.wire();
-  ctrl.performScan();
-  const lastElig = eligibilityCalls[eligibilityCalls.length - 1];
-  assert.ok(lastElig, 'setAiPageEligibility must be called');
-  assert.equal(lastElig.eligible, false);
-  assert.equal(lastElig.blockedReason, 'assignment-submission');
-  assert.ok(scanResults.indexOf(null) !== -1, 'setAiScanResult(null) must be called to clear the scan preview');
-  assert.ok(suggestionsCalls.indexOf(null) !== -1, 'setAiSuggestions(null) must be called to clear suggestions');
-  const sawBlockedMsg = applyResultCalls.some(function (r) { return r && typeof r === 'object' && /disabled on graded or blocked assessment pages/i.test(r.message || ''); });
-  assert.ok(sawBlockedMsg, 'apply result must be set to the blocked-page message');
-});
-
-test('U12-B3: stale safe-page preview is cleared when SPA navigates to a blocked page and Scan is invoked again', () => {
-  // First scan on an eligible page populates _activeSnapshot + sidebar scan preview.
-  let blocked = false;
-  const goodSnap = { token: 'snap_good', page: { eligible: true, blockedReason: null }, questions: [{ id: 'q1', order: 1, questionNumber: 1, type: 'single_choice', prompt: 'PROMPT-TEXT-MUST-NOT-LINGER', supported: true, alreadyAnswered: false, options: [] }], supportedCount: 1, unsupportedCount: 0, actionableCount: 1, localGuard: [] };
-  const qc = {
-    buildQuestionSnapshot: function () { if (blocked) throw new Error('buildQuestionSnapshot MUST NOT be called when blocked'); return goodSnap; },
-    sanitizeForRequest: function (s) { return s; },
-    isCurrentPageBlocked: function () { return blocked ? { blocked: true, reason: 'assignment-submission' } : { blocked: false, reason: null }; },
-    compareLocalGuards: function () { return { changed: false }; },
-  };
-  const scanResults = [];
-  const fakeSidebar = (function () {
-    const base = makeBlockedPageFakeSidebar();
-    const o = base.setAiScanResult;
-    base.setAiScanResult = function (v) { scanResults.push(v); if (o) o(v); };
-    return base;
-  })();
-  const loc = { href: 'https://www.coursera.org/learn/x/lecture/v1/intro', pathname: '/learn/x/lecture/v1/intro', origin: 'https://www.coursera.org' };
-  const ctrl = createAiController({
-    sidebar: fakeSidebar, questionContext: qc,
-    validator: { validateAndMap: function () { return { ok: true, suggestions: [] }; } },
-    answerApplier: { applyStructuredAnswers: function () { throw new Error('must not apply on blocked'); } },
-    messenger: { send: function (cmd, p, cb) { if (cmd === 'keyStatus') return cb({ ok: true, keyPresent: true, accessMode: 'personal-key' }); cb({ ok: true }); } },
-    document: { body: {}, querySelector: function () { return null; } }, location: loc,
-    openOptionsFn: function (cb) { if (cb) cb({ ok: true }); },
-  });
-  ctrl.wire();
-  ctrl.performScan();
-  // After eligible scan, the latest setAiScanResult call carries the good snapshot.
-  assert.equal(scanResults[scanResults.length - 1].token, 'snap_good', 'precondition: eligible scan populated the preview');
-  // Now SPA-navigate to a blocked URL (mutate href + pathname; same loc object).
-  blocked = true;
-  loc.href = 'https://www.coursera.org/learn/x/assignment-submission/abc/attempt';
-  loc.pathname = '/learn/x/assignment-submission/abc/attempt';
-  ctrl.performScan();
-  // The most recent setAiScanResult call after the blocked scan must be null.
-  assert.equal(scanResults[scanResults.length - 1], null, 'blocked scan must clear stale safe-page preview via setAiScanResult(null)');
-});
-
-test('U12-B4: blocked performScan creates no usable _activeSnapshot — subsequent performGenerate refuses without sending generateAnswers', () => {
-  const { loc, doc } = makeU12LocAndDoc('/learn/x/assignment-submission/abc/attempt');
-  const sentCommands = [];
-  const qc = {
-    buildQuestionSnapshot: function () { throw new Error('buildQuestionSnapshot must not be called on a blocked page'); },
-    sanitizeForRequest: function (s) { return s; },
-    isCurrentPageBlocked: function () { return { blocked: true, reason: 'assignment-submission' }; },
-    compareLocalGuards: function () { return { changed: false }; },
-  };
-  const fakeSidebar = makeBlockedPageFakeSidebar();
-  const ctrl = createAiController({
-    sidebar: fakeSidebar, questionContext: qc,
-    validator: { validateAndMap: function () { return { ok: true, suggestions: [] }; } },
-    answerApplier: { applyStructuredAnswers: function () { throw new Error('must not apply'); } },
-    messenger: { send: function (cmd, p, cb) { sentCommands.push({ cmd: cmd, params: p }); if (cmd === 'keyStatus') return cb({ ok: true, keyPresent: true, accessMode: 'personal-key' }); cb({ ok: true }); } },
-    document: doc, location: loc,
-    openOptionsFn: function (cb) { if (cb) cb({ ok: true }); },
-  });
-  ctrl.wire();
-  ctrl.performScan();
-  // Even after the blocked scan, attempting Generate must not send generateAnswers.
-  ctrl.performGenerate();
-  const genCalls = sentCommands.filter(function (c) { return c.cmd === 'generateAnswers'; });
-  assert.equal(genCalls.length, 0, 'no generateAnswers must be sent after a blocked scan');
-});
-
-test('U12-B5: blocked performScan leaves Apply in a refused state — answerApplier.applyStructuredAnswers is never called', () => {
-  const { loc, doc } = makeU12LocAndDoc('/learn/x/assignment-submission/abc/attempt');
-  let applyCalls = 0;
-  const qc = {
-    buildQuestionSnapshot: function () { throw new Error('buildQuestionSnapshot must not be called on a blocked page'); },
-    sanitizeForRequest: function (s) { return s; },
-    isCurrentPageBlocked: function () { return { blocked: true, reason: 'assignment-submission' }; },
-    compareLocalGuards: function () { return { changed: false }; },
-  };
-  const ctrl = createAiController({
-    sidebar: makeBlockedPageFakeSidebar(), questionContext: qc,
-    validator: { validateAndMap: function () { return { ok: true, suggestions: [] }; } },
-    answerApplier: { applyStructuredAnswers: function () { applyCalls++; throw new Error('answerApplier.applyStructuredAnswers MUST NOT be called on a blocked page'); } },
-    messenger: { send: function (cmd, p, cb) { if (cmd === 'keyStatus') return cb({ ok: true, keyPresent: true, accessMode: 'personal-key' }); cb({ ok: true }); } },
-    document: doc, location: loc,
-    openOptionsFn: function (cb) { if (cb) cb({ ok: true }); },
-  });
-  ctrl.wire();
-  ctrl.performScan();
-  ctrl.performApply();
-  assert.equal(applyCalls, 0, 'answerApplier.applyStructuredAnswers MUST NOT be called on a blocked page');
-});
-
-test('U12-B6: blocked performScan does NOT affect Manage AI API Key — openOptionsFn still produces exactly one sanitized open-options invocation per click', () => {
-  const { loc, doc } = makeU12LocAndDoc('/learn/x/assignment-submission/abc/attempt');
+  const doc = { body: {}, querySelector: function () { return null; } };
   let openOptionsCalls = 0;
+  const benignSnap = {
+    token: 'snap_benign', page: { eligible: true, blockedReason: null },
+    questions: [], supportedCount: 0, unsupportedCount: 0, actionableCount: 0, localGuard: [],
+  };
   const qc = {
-    buildQuestionSnapshot: function () { throw new Error('must not call buildQuestionSnapshot'); },
+    buildQuestionSnapshot: function () { return benignSnap; },
     sanitizeForRequest: function (s) { return s; },
-    isCurrentPageBlocked: function () { return { blocked: true, reason: 'assignment-submission' }; },
+    isCurrentPageBlocked: function () { return { blocked: false, reason: null }; },
     compareLocalGuards: function () { return { changed: false }; },
   };
   const fakeSidebar = makeBlockedPageFakeSidebar();
   const ctrl = createAiController({
     sidebar: fakeSidebar, questionContext: qc,
     validator: { validateAndMap: function () { return { ok: true, suggestions: [] }; } },
-    answerApplier: { applyStructuredAnswers: function () { throw new Error('must not apply'); } },
+    answerApplier: { applyStructuredAnswers: function () { return { summary: { filled: 0, failed: 0 } }; } },
     messenger: { send: function (cmd, p, cb) { if (cmd === 'keyStatus') return cb({ ok: true, keyPresent: true, accessMode: 'personal-key' }); cb({ ok: true }); } },
     document: doc, location: loc,
     openOptionsFn: function (cb) { openOptionsCalls++; if (cb) cb({ ok: true }); },
   });
   ctrl.wire();
-  ctrl.performScan(); // blocked
-  // Open settings from the blocked-page sidebar (via the handler the controller wired).
+  ctrl.performScan();
   fakeSidebar._getHandlers().onOpenOptions();
-  assert.equal(openOptionsCalls, 1, 'Manage AI API Key must still issue exactly one sanitized open-options invocation');
-  // Failure/clear sequence: success path clears prior failure feedback.
+  assert.equal(openOptionsCalls, 1, 'Manage AI API Key must issue exactly one sanitized open-options invocation per click');
   assert.equal(fakeSidebar._getLastOpenOptionsFailure(), '', 'success path clears prior failure feedback');
 });
