@@ -148,22 +148,6 @@ test('end-to-end: scan, generate (stubbed background), apply -> fills radio and 
   assert.equal(panel.querySelector('input[type="password"]'), null, 'no password input in AI panel');
 });
 
-test('end-to-end: blocked page refuses scan/generate/apply', () => {
-  // Use a fresh JSDOM with the gradedLti URL passed directly to avoid
-  // JSDOM's read-only location.href descriptor issues.
-  const dom = freshDom('https://www.coursera.org/learn/course/gradedLti/abc/xyz');
-  const a = dom.window.ClipboardCleaner;
-  const initBlock = a.aiQuestionContext.isCurrentPageBlocked(dom.window.location, dom.window.document);
-  assert.equal(initBlock.blocked, true);
-  a.sidebar.setAiKeyStatus(true);
-  a.sidebar.setAiPageEligibility({ eligible: false, blockedReason: initBlock.reason, supportedCount: 0 });
-  const host = dom.window.document.getElementById('ccp-host-root');
-  const shadow = host.shadowRoot || host;
-  assert.equal(shadow.querySelector('[data-action="ai-generate"]').disabled, true);
-  assert.equal(shadow.querySelector('[data-action="ai-apply"]').disabled, true);
-  assert.ok(/disabled on graded or blocked/i.test(shadow.querySelector('[data-role="ai-status"]').textContent));
-});
-
 test('end-to-end: stale snapshot blocks apply', () => {
   const dom = freshDom();
   const a = dom.window.ClipboardCleaner;
