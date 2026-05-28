@@ -437,3 +437,72 @@ test('multi-segment answer on single_choice with letter-only options → failed 
   assert.equal(r.summary.failed, 1);
   assert.equal(r.summary.filled, 0);
 });
+
+test('multi-target text question: letter segments fill each sub-input positionally', () => {
+  const { JSDOM } = require('jsdom');
+  const dom = new JSDOM(
+    '<!doctype html><html><body>'
+    + '<section><h3>Question 1</h3><p>Multi-blank prompt</p>'
+    + '<label>(A) <input type="text" id="ta" /></label>'
+    + '<label>(B) <input type="text" id="tb" /></label>'
+    + '<label>(C) <input type="text" id="tc" /></label>'
+    + '</section>'
+    + '</body></html>'
+  );
+  const raw = '1. (A) uncertainty, (B) fair, (C) 1';
+  const r = applyAnswers(raw, dom.window.document.body, { verbose: false });
+  assert.equal(dom.window.document.getElementById('ta').value, 'uncertainty');
+  assert.equal(dom.window.document.getElementById('tb').value, 'fair');
+  assert.equal(dom.window.document.getElementById('tc').value, '1');
+  assert.equal(r.summary.filled, 1, 'one question fully filled');
+});
+
+test('multi-target text question: sequence segments fill positionally', () => {
+  const { JSDOM } = require('jsdom');
+  const dom = new JSDOM(
+    '<!doctype html><html><body>'
+    + '<section><h3>Question 1</h3><p>Order:</p>'
+    + '<input type="text" id="t1" /><input type="text" id="t2" /><input type="text" id="t3" />'
+    + '</section>'
+    + '</body></html>'
+  );
+  const raw = '1. first – second – third';
+  applyAnswers(raw, dom.window.document.body, { verbose: false });
+  assert.equal(dom.window.document.getElementById('t1').value, 'first');
+  assert.equal(dom.window.document.getElementById('t2').value, 'second');
+  assert.equal(dom.window.document.getElementById('t3').value, 'third');
+});
+
+test('multi-target text question: segment count > target count fills min(L,R) and reports partial', () => {
+  const { JSDOM } = require('jsdom');
+  const dom = new JSDOM(
+    '<!doctype html><html><body>'
+    + '<section><h3>Question 1</h3><p>P</p>'
+    + '<input type="text" id="ta" /><input type="text" id="tb" />'
+    + '</section>'
+    + '</body></html>'
+  );
+  const raw = '1. (A) one, (B) two, (C) three';
+  const r = applyAnswers(raw, dom.window.document.body, { verbose: false });
+  assert.equal(dom.window.document.getElementById('ta').value, 'one');
+  assert.equal(dom.window.document.getElementById('tb').value, 'two');
+  assert.equal(r.results[0].status, 'partial');
+  assert.equal(r.results[0].reason, 'segment-count-mismatch');
+});
+
+test('single-target text question with no segments: prose fills the one input (passthrough)', () => {
+  const { JSDOM } = require('jsdom');
+  const dom = new JSDOM(
+    '<!doctype html><html><body>'
+    + '<section><h3>Question 1</h3><p>P</p>'
+    + '<textarea id="ta"></textarea>'
+    + '</section>'
+    + '</body></html>'
+  );
+  const raw = '1. If users in different cells reuse the same frequency channels, the required bandwidth becomes much reduced.';
+  applyAnswers(raw, dom.window.document.body, { verbose: false });
+  assert.equal(
+    dom.window.document.getElementById('ta').value,
+    'If users in different cells reuse the same frequency channels, the required bandwidth becomes much reduced.'
+  );
+});
