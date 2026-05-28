@@ -130,13 +130,13 @@ test('user prompt contains snapshot but never an API key', async () => {
   assert.equal(userMsg.content.indexOf('sk-XYZ'), -1);
 });
 
-test('H9: createClient with no model option uses deepseek-v4-flash by default', async () => {
+test('H9: createClient with no model option uses deepseek-chat by default', async () => {
   const f = makeFetch(function () { return makeResponse(200, { choices: [{ message: { content: '{"answers":[]}' } }] }); });
   const c = createClient({ fetchFn: f });
   await c.generateAnswers(SNAP, 'sk-x');
   const body = JSON.parse(f.calls[0].init.body);
-  assert.equal(body.model, 'deepseek-v4-flash',
-    'Default model must be deepseek-v4-flash. The legacy "deepseek-chat" alias is documented as deprecated 2026-07-24. Do not change the default unless official DeepSeek docs change.');
+  assert.equal(body.model, 'deepseek-chat',
+    'Default model must be deepseek-chat (canonical DeepSeek-V3 chat completion model). The earlier "deepseek-v4-flash" default returned HTTP 400 "Model not found" from the live API.');
 });
 
 test('U15-P1: SYSTEM_PROMPT contains explicit math_input answer shape example', async () => {
@@ -168,4 +168,96 @@ test('U15-P2: SYSTEM_PROMPT still contains "json" (DeepSeek JSON-mode requiremen
   const systemMsg = captured.messages[0];
   assert.ok(/\bjson\b/i.test(systemMsg.content),
     'system prompt MUST contain the word "json" for DeepSeek JSON mode');
+});
+
+// === U18: deepseek-client transport diagnostics ===
+
+test('U18-D1: HTTP non-OK includes response body excerpt in res.detail', async () => {
+  const f = makeFetch(function () {
+    return Promise.resolve({
+      ok: false,
+      status: 400,
+      text: function () { return Promise.resolve('{"error":{"message":"Model not found: deepseek-v4-flash","type":"invalid_request_error"}}'); },
+    });
+  });
+  const c = createClient({ fetchFn: f });
+  const r = await c.generateAnswers(SNAP, 'sk-fake');
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'invalid-response');
+  assert.ok(typeof r.detail === 'string', 'detail must be a string; got: ' + JSON.stringify(r));
+  assert.ok(r.detail.indexOf('http 400') !== -1, 'detail must include HTTP status; got: ' + JSON.stringify(r.detail));
+  assert.ok(r.detail.indexOf('Model not found') !== -1,
+    'detail must include the response body excerpt so the UI can surface the real reason; got: ' + JSON.stringify(r.detail));
+});
+
+test('U18-D2: HTTP 200 with non-JSON body sets reason invalid-response with body excerpt in detail', async () => {
+  const f = makeFetch(function () {
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      text: function () { return Promise.resolve('<html>Service Unavailable</html>'); },
+    });
+  });
+  const c = createClient({ fetchFn: f });
+  const r = await c.generateAnswers(SNAP, 'sk-fake');
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'invalid-response');
+  assert.ok(typeof r.detail === 'string', 'detail must be set when JSON.parse fails');
+  assert.ok(/Service Unavailable|<html>/i.test(r.detail),
+    'detail must include a body excerpt; got: ' + JSON.stringify(r.detail));
+});
+
+test('U18-D3: HTTP non-OK body excerpt is truncated to <=240 chars', async () => {
+  var huge = '{"error":{"message":"' + 'X'.repeat(5000) + '"}}';
+  const f = makeFetch(function () {
+    return Promise.resolve({
+      ok: false,
+      status: 400,
+      text: function () { return Promise.resolve(huge); },
+    });
+  });
+  const c = createClient({ fetchFn: f });
+  const r = await c.generateAnswers(SNAP, 'sk-fake');
+  assert.equal(r.ok, false);
+  assert.ok(typeof r.detail === 'string');
+  assert.ok(r.detail.length <= 280, 'detail must be reasonably short (<=280 chars total); got length ' + r.detail.length);
+});
+
+test('U18-D4: HTTP 401 still classifies as unauthorized AND now includes body excerpt', async () => {
+  const f = makeFetch(function () {
+    return Promise.resolve({
+      ok: false,
+      status: 401,
+      text: function () { return Promise.resolve('{"error":{"message":"Invalid Authentication"}}'); },
+    });
+  });
+  const c = createClient({ fetchFn: f });
+  const r = await c.generateAnswers(SNAP, 'sk-fake');
+  assert.equal(r.ok, false);
+  assert.equal(r.reason, 'unauthorized');
+  assert.ok(r.detail.indexOf('Invalid Authentication') !== -1,
+    'unauthorized errors should also include the body excerpt so the user can see WHY the key was rejected');
+});
+
+test('U18-D5: default model is "deepseek-chat" (known-working canonical name)', async () => {
+  let captured = null;
+  const f = makeFetch(function (url, init) {
+    try { captured = JSON.parse(init.body); } catch (_) {}
+    return makeResponse(200, { choices: [{ message: { content: JSON.stringify({ answers: [] }) } }] });
+  });
+  const c = createClient({ fetchFn: f });
+  await c.generateAnswers(SNAP, 'sk-fake');
+  assert.equal(captured && captured.model, 'deepseek-chat',
+    'default model must be "deepseek-chat"; got: ' + JSON.stringify(captured && captured.model));
+});
+
+test('U18-D6: explicit model override via createClient still works', async () => {
+  let captured = null;
+  const f = makeFetch(function (url, init) {
+    try { captured = JSON.parse(init.body); } catch (_) {}
+    return makeResponse(200, { choices: [{ message: { content: JSON.stringify({ answers: [] }) } }] });
+  });
+  const c = createClient({ fetchFn: f, model: 'deepseek-reasoner' });
+  await c.generateAnswers(SNAP, 'sk-fake');
+  assert.equal(captured && captured.model, 'deepseek-reasoner');
 });
