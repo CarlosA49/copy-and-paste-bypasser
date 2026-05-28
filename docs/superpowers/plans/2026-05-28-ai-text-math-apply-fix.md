@@ -95,13 +95,38 @@ test('U15-V7: math_input with empty / whitespace-only value is still rejected', 
   }, SNAP);
   assert.equal(out2.suggestions[0].applicable, false);
 });
+
+test('U15-V8: math_input with ans.type="string" is accepted (some models use this label)', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q3', answer: { type: 'string', value: 'hello' } }],
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, true);
+  assert.equal(out.suggestions[0].value, 'hello');
+});
+
+test('U15-V9: math_input with a bare-string a.answer (no object wrapper) is accepted', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q3', answer: '0.42', explanation: 'forty-two percent', confidence: 'medium' }],
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, true);
+  assert.equal(out.suggestions[0].value, '0.42');
+  assert.equal(out.suggestions[0].explanation, 'forty-two percent');
+});
+
+test('U15-V10: math_input with a bare-number a.answer (numeric, no wrapper) is accepted', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q3', answer: 7 }],
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, true);
+  assert.equal(out.suggestions[0].value, '7');
+});
 ```
 
-- [ ] **Step 2: Run the tests and confirm all 7 FAIL**
+- [ ] **Step 2: Run the tests and confirm ~9 of 10 FAIL**
 
 Run: `node --test --test-name-pattern="U15-V" tests/ai-answer-validator.test.js`
 
-Expected: 7 fail. Capture the verbatim failure messages — most should report `applicable: false` and `mappingStatus: 'wrong-type'`.
+Expected: tests U15-V1 through U15-V6 and U15-V8 through U15-V10 FAIL (9 fails). `U15-V7` (empty value rejection) may already PASS since the current code rejects empty values too. Capture the verbatim failure messages — most should report `applicable: false` and `mappingStatus: 'wrong-type'`.
 
 - [ ] **Step 3: Replace the `math_input` branch in `lib/ai-answer-validator.js`**
 
@@ -119,13 +144,33 @@ Replace with:
 
 ```js
 } else if (q.type === 'math_input') {
-  var TEXT_LIKE_TYPES = { 'text': 1, 'math_input': 1, 'numerical': 1, 'input': 1 };
-  // Tolerate four shape variants the AI tends to emit, including bare strings and numbers
-  // and the 'text' alias for the value field. The applier downstream is robust to any of them.
-  var rawVal = (ans && typeof ans === 'object')
-    ? (ans.value !== undefined ? ans.value : ans.text)
-    : undefined;
-  var typeOk = !ans || !ans.type || (typeof ans.type === 'string' && TEXT_LIKE_TYPES[ans.type] === 1);
+  var TEXT_LIKE_TYPES = { 'text': 1, 'math_input': 1, 'numerical': 1, 'input': 1, 'string': 1 };
+  // Tolerate the many shape variants the AI tends to emit for typed answers:
+  //   { type: 'text'|'math_input'|'numerical'|'input'|'string', value: '...' }
+  //   { type, text: '...' }              (text alias for value)
+  //   { value: '...' }                   (no type)
+  //   { type, value: 3.14 }              (numeric value coerced to string)
+  //   bare string  a.answer = '0.5'      (no object wrapper)
+  //   bare number  a.answer = 7          (no object wrapper)
+  // The applier downstream (applyStructuredAnswers + mathNormalize + answerMatcher)
+  // is robust to all of these — the validator just needs to extract a non-empty
+  // string value and mark the suggestion applicable.
+  var rawAns = a.answer;
+  var rawVal, ansType;
+  if (typeof rawAns === 'string') {
+    rawVal = rawAns;
+    ansType = null;
+  } else if (typeof rawAns === 'number') {
+    rawVal = rawAns;
+    ansType = null;
+  } else if (rawAns && typeof rawAns === 'object') {
+    rawVal = (rawAns.value !== undefined ? rawAns.value : rawAns.text);
+    ansType = rawAns.type;
+  } else {
+    rawVal = undefined;
+    ansType = null;
+  }
+  var typeOk = !ansType || (typeof ansType === 'string' && TEXT_LIKE_TYPES[ansType] === 1);
   var stringVal = (typeof rawVal === 'string') ? rawVal
                 : (typeof rawVal === 'number' && isFinite(rawVal)) ? String(rawVal)
                 : null;
@@ -135,16 +180,18 @@ Replace with:
   suggestions.push(Object.assign(base, { value: stringVal.trim(), mappingStatus: 'matched', applicable: true }));
 ```
 
+Note: this shadows the outer `var ans = a.answer || {}` (line 49 of the file) with a local `rawAns` so the single_choice / multiple_choice branches above still see `ans` as their object. Don't remove the outer `var ans` declaration.
+
 The branches before and after are unchanged. Specifically:
 - `single_choice` branch above stays.
 - `multiple_choice` branch above stays.
 - The final `else` branch below (for genuinely unsupported question types) stays.
 
-- [ ] **Step 4: Re-run the U15-V tests and confirm 7/7 PASS**
+- [ ] **Step 4: Re-run the U15-V tests and confirm 10/10 PASS**
 
 Run: `node --test --test-name-pattern="U15-V" tests/ai-answer-validator.test.js`
 
-Expected: 7 pass.
+Expected: 10 pass.
 
 - [ ] **Step 5: Run the full validator test file**
 
@@ -272,7 +319,7 @@ git commit -m "feat(deepseek-client): add math_input text-answer shape to SYSTEM
 
 Run: `npm test`
 
-Expected: every test PASSES across every file. Net count change: +9 (7 U15-V + 2 U15-P).
+Expected: every test PASSES across every file. Net count change: +12 (10 U15-V + 2 U15-P).
 
 - [ ] **Step 2: Autopilot regression**
 
