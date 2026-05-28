@@ -506,3 +506,45 @@ test('single-target text question with no segments: prose fills the one input (p
     'If users in different cells reuse the same frequency channels, the required bandwidth becomes much reduced.'
   );
 });
+
+test('E2E: user-reported paste fills multi-target questions, refuses single-letter choices, fills prose', () => {
+  const { JSDOM } = require('jsdom');
+  const html = ''
+    + '<section><h3>Question 1</h3><p>Multi-blank</p>'
+    + '<input type="text" id="q1a" /><input type="text" id="q1b" /><input type="text" id="q1c" />'
+    + '</section>'
+    + '<section><h3>Question 2</h3><p>Pick one</p>'
+    + '<label><input type="radio" name="r2" value="A">A</label>'
+    + '<label><input type="radio" name="r2" value="B">B</label>'
+    + '<label><input type="radio" name="r2" value="C">C</label>'
+    + '</section>'
+    + '<section><h3>Question 3</h3><p>Explain</p>'
+    + '<textarea id="q3"></textarea>'
+    + '</section>';
+  const dom = new JSDOM('<!doctype html><html><body>' + html + '</body></html>');
+  const raw =
+    '1. (A) uncertainty, (B) fair, (C) 1\n'
+    + '2. (A) MCS, (B) CQI, (C) AMC\n'
+    + '3. If users in different cells reuse the same frequency channels, the required bandwidth becomes much reduced.';
+  const r = applyAnswers(raw, dom.window.document.body, { verbose: false });
+
+  // Q1: multi-blank fills positionally
+  assert.equal(dom.window.document.getElementById('q1a').value, 'uncertainty');
+  assert.equal(dom.window.document.getElementById('q1b').value, 'fair');
+  assert.equal(dom.window.document.getElementById('q1c').value, '1');
+
+  // Q2: multi-segment-not-single-choice → no radio selected
+  const r2 = dom.window.document.querySelectorAll('input[name="r2"]');
+  assert.equal(r2[0].checked, false, 'A must not be selected (regression for all-A bug)');
+  assert.equal(r2[1].checked, false);
+  assert.equal(r2[2].checked, false);
+
+  // Q3: prose fills the textarea
+  assert.equal(
+    dom.window.document.getElementById('q3').value,
+    'If users in different cells reuse the same frequency channels, the required bandwidth becomes much reduced.'
+  );
+
+  assert.equal(r.summary.filled, 2, 'Q1 and Q3 filled');
+  assert.equal(r.summary.failed, 1, 'Q2 refused');
+});
