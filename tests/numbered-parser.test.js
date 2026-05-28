@@ -280,3 +280,23 @@ test('parseAnswerSegments: letters beat sequence when both present', () => {
   assert.equal(r.kind, 'letters');
   assert.equal(r.items.length, 2);
 });
+
+test('parseNumberedAnswers: line-fallback annotates segments on each item', () => {
+  const raw = '(A) uncertainty, (B) fair, (C) 1\n(A) 2W, (B) infinite, (C) decreased, (D) increased\nprose with no separators here';
+  const out = numberedParser.parseNumberedAnswers(raw);
+  assert.equal(out.length, 3);
+  assert.ok(out[0].segments && out[0].segments.kind === 'letters');
+  assert.equal(out[0].segments.items.length, 3);
+  assert.ok(out[1].segments && out[1].segments.kind === 'letters');
+  assert.equal(out[1].segments.items.length, 4);
+  assert.equal(out[2].segments, undefined);
+});
+
+test('parseNumberedAnswers: numbered list also gets segment annotation', () => {
+  const raw = '1. (A) red, (B) blue\n2. plain answer\n3. X – Y – Z';
+  const out = numberedParser.parseNumberedAnswers(raw);
+  assert.equal(out.length, 3);
+  assert.equal(out[0].segments && out[0].segments.kind, 'letters');
+  assert.equal(out[1].segments, undefined);
+  assert.equal(out[2].segments && out[2].segments.kind, 'sequence');
+});
