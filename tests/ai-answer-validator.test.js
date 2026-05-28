@@ -189,3 +189,99 @@ test('U15-V10: math_input with a bare-number a.answer (numeric, no wrapper) is a
   assert.equal(out.suggestions[0].applicable, true);
   assert.equal(out.suggestions[0].value, '7');
 });
+
+// === U17: tolerant single_choice resolution paths ===
+
+test('U17-V1: single_choice with option_ids array (canonical) still works', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q1', answer: { type: 'single_choice', option_ids: ['q1o0'] } }]
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, true);
+  assert.equal(out.suggestions[0].mappingStatus, 'matched');
+  assert.equal(out.suggestions[0].choiceText, 'Alpha');
+});
+
+test('U17-V2: single_choice with option_id singular string is accepted', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q1', answer: { type: 'single_choice', option_id: 'q1o1' } }]
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, true);
+  assert.equal(out.suggestions[0].choiceText, 'Beta');
+});
+
+test('U17-V3: single_choice with letter "A" is accepted (case-insensitive)', () => {
+  const out = v.validateAndMap({
+    answers: [
+      { question_id: 'q1', answer: { type: 'single_choice', letter: 'A' } },
+      { question_id: 'q1', answer: { type: 'single_choice', letter: 'b' } },
+    ]
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, true);
+  assert.equal(out.suggestions[0].choiceText, 'Alpha');
+  assert.equal(out.suggestions[1].applicable, true);
+  assert.equal(out.suggestions[1].choiceText, 'Beta');
+});
+
+test('U17-V4: single_choice with value as a single letter is accepted', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q1', answer: { type: 'single_choice', value: 'B' } }]
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, true);
+  assert.equal(out.suggestions[0].choiceText, 'Beta');
+});
+
+test('U17-V5: single_choice with value as the exact option label is accepted', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q1', answer: { type: 'single_choice', value: 'Alpha' } }]
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, true);
+  assert.equal(out.suggestions[0].choiceText, 'Alpha');
+});
+
+test('U17-V6: single_choice with value matching label case-insensitively is accepted', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q1', answer: { type: 'single_choice', value: 'BETA' } }]
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, true);
+  assert.equal(out.suggestions[0].choiceText, 'Beta');
+});
+
+test('U17-V7: single_choice with bare-string a.answer "A" is accepted as letter', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q1', answer: 'A' }]
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, true);
+  assert.equal(out.suggestions[0].choiceText, 'Alpha');
+});
+
+test('U17-V8: single_choice with bare-string a.answer matching label is accepted', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q1', answer: 'Beta' }]
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, true);
+  assert.equal(out.suggestions[0].choiceText, 'Beta');
+});
+
+test('U17-V9: single_choice with value as the option_id is accepted', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q1', answer: { type: 'single_choice', value: 'q1o0' } }]
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, true);
+  assert.equal(out.suggestions[0].choiceText, 'Alpha');
+});
+
+test('U17-V10: single_choice with unresolvable value is rejected as wrong-type', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q1', answer: { type: 'single_choice', value: 'totally unrelated' } }]
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, false);
+  assert.equal(out.suggestions[0].mappingStatus, 'wrong-type');
+});
+
+test('U17-V11: single_choice with option_ids referring to an unknown id is rejected as unknown-option', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q1', answer: { type: 'single_choice', option_ids: ['q1o999'] } }]
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, false);
+  assert.equal(out.suggestions[0].mappingStatus, 'unknown-option');
+});
