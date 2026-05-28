@@ -101,3 +101,91 @@ test('stale snapshot token mismatch blocks apply', () => {
   assert.equal(out.ok, false);
   assert.equal(out.reason, 'stale-snapshot');
 });
+
+test('U15-V1: math_input with ans.type="math_input" is accepted (alias)', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q3', answer: { type: 'math_input', value: '0.5' }, explanation: '', confidence: 'high' }],
+  }, SNAP);
+  assert.equal(out.ok, true);
+  const s = out.suggestions[0];
+  assert.equal(s.applicable, true, 'must be applicable');
+  assert.equal(s.value, '0.5');
+  assert.equal(s.mappingStatus, 'matched');
+});
+
+test('U15-V2: math_input with ans.type="numerical" is accepted (alias)', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q3', answer: { type: 'numerical', value: '42' } }],
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, true);
+  assert.equal(out.suggestions[0].value, '42');
+});
+
+test('U15-V3: math_input with ans.type="input" is accepted (alias)', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q3', answer: { type: 'input', value: 'hello world' } }],
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, true);
+  assert.equal(out.suggestions[0].value, 'hello world');
+});
+
+test('U15-V4: math_input with numeric ans.value is coerced to string', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q3', answer: { type: 'text', value: 3.14 } }],
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, true);
+  assert.equal(out.suggestions[0].value, '3.14');
+});
+
+test('U15-V5: math_input with ans.text alias (instead of ans.value) is accepted', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q3', answer: { type: 'text', text: 'alpha' } }],
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, true);
+  assert.equal(out.suggestions[0].value, 'alpha');
+});
+
+test('U15-V6: math_input with bare value and no ans.type is accepted', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q3', answer: { value: 'bare' } }],
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, true);
+  assert.equal(out.suggestions[0].value, 'bare');
+});
+
+test('U15-V7: math_input with empty / whitespace-only value is still rejected', () => {
+  const out1 = v.validateAndMap({
+    answers: [{ question_id: 'q3', answer: { type: 'text', value: '' } }],
+  }, SNAP);
+  assert.equal(out1.suggestions[0].applicable, false);
+  assert.equal(out1.suggestions[0].mappingStatus, 'wrong-type');
+  const out2 = v.validateAndMap({
+    answers: [{ question_id: 'q3', answer: { type: 'text', value: '   ' } }],
+  }, SNAP);
+  assert.equal(out2.suggestions[0].applicable, false);
+});
+
+test('U15-V8: math_input with ans.type="string" is accepted (some models use this label)', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q3', answer: { type: 'string', value: 'hello' } }],
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, true);
+  assert.equal(out.suggestions[0].value, 'hello');
+});
+
+test('U15-V9: math_input with a bare-string a.answer (no object wrapper) is accepted', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q3', answer: '0.42', explanation: 'forty-two percent', confidence: 'medium' }],
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, true);
+  assert.equal(out.suggestions[0].value, '0.42');
+  assert.equal(out.suggestions[0].explanation, 'forty-two percent');
+});
+
+test('U15-V10: math_input with a bare-number a.answer (numeric, no wrapper) is accepted', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q3', answer: 7 }],
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, true);
+  assert.equal(out.suggestions[0].value, '7');
+});
