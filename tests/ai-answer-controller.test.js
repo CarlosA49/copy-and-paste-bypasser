@@ -373,10 +373,15 @@ test('C4: validator-invalid (ok:false from validator) renders the invalid-format
   controller.wire();
   controller.performScan();
   await new Promise(function (r) { setTimeout(r, 0); });
-  controller.performGenerate();
-  await new Promise(function (r) { setTimeout(r, 0); });
+  const origWarn = console.warn;
+  console.warn = function () {};
+  try {
+    controller.performGenerate();
+    await new Promise(function (r) { setTimeout(r, 0); });
+  } finally { console.warn = origWarn; }
   assert.ok(sidebar.state.applyResult && sidebar.state.applyResult.message);
-  assert.equal(sidebar.state.applyResult.message, 'The AI service returned an answer format that could not be safely applied.');
+  assert.ok(/unrecognized format/i.test(sidebar.state.applyResult.message),
+    'expected diagnostic message; got: ' + JSON.stringify(sidebar.state.applyResult.message));
 });
 
 test('C5: stale-structure refusal sets message, not bare counts', async () => {
@@ -1059,4 +1064,165 @@ test('U14-B6: performScan does not affect Manage AI API Key click counting (inde
   fakeSidebar._getHandlers().onOpenOptions();
   assert.equal(openOptionsCalls, 1, 'Manage AI API Key must issue exactly one sanitized open-options invocation per click');
   assert.equal(fakeSidebar._getLastOpenOptionsFailure(), '', 'success path clears prior failure feedback');
+});
+
+// === U17: dev-friendly diagnostics in performGenerate ===
+
+test('U17-C1: validator val.ok=false → console.warn with reason + apply-result message includes the reason', async () => {
+  const benignLoc = {
+    href: 'https://www.coursera.org/learn/x/lecture/v1/intro',
+    pathname: '/learn/x/lecture/v1/intro',
+    origin: 'https://www.coursera.org',
+  };
+  const doc = { body: {}, querySelector: function () { return null; } };
+  const snap = {
+    token: 't1', page: { eligible: true, blockedReason: null },
+    questions: [{ id: 'q1', order: 1, questionNumber: 1, type: 'single_choice', supported: true, alreadyAnswered: false, options: [{ id: 'q1o0', label: 'A' }] }],
+    supportedCount: 1, unsupportedCount: 0, actionableCount: 1, localGuard: [],
+  };
+  const qc = {
+    buildQuestionSnapshot: function () { return snap; },
+    sanitizeForRequest: function (s) { return s; },
+    isCurrentPageBlocked: function () { return { blocked: false, reason: null }; },
+    compareLocalGuards: function () { return { changed: false }; },
+  };
+  const validator = {
+    validateAndMap: function () { return { ok: false, reason: 'invalid-schema', suggestions: [], rejectedCount: 0 }; },
+  };
+  const fakeSidebar = makeBlockedPageFakeSidebar();
+  const ctrl = createAiController({
+    sidebar: fakeSidebar,
+    questionContext: qc,
+    validator: validator,
+    answerApplier: { applyStructuredAnswers: function () { throw new Error('must not apply'); } },
+    messenger: { send: function (cmd, p, cb) { if (cmd === 'keyStatus') return cb({ ok: true, keyPresent: true, accessMode: 'personal-key' }); cb({ ok: true, raw: { not: 'an answers array' } }); } },
+    document: doc, location: benignLoc,
+    openOptionsFn: function (cb) { if (cb) cb({ ok: true }); },
+  });
+  ctrl.wire();
+  ctrl.performScan();
+
+  const origWarn = console.warn;
+  const warns = [];
+  console.warn = function () { warns.push(Array.prototype.slice.call(arguments)); };
+  try {
+    ctrl.performGenerate();
+    await new Promise(function (r) { setTimeout(r, 0); });
+  } finally { console.warn = origWarn; }
+
+  const applyResult = fakeSidebar._getLastApplyResult();
+  assert.ok(applyResult && typeof applyResult.message === 'string', 'apply-result must have a message');
+  assert.ok(/invalid-schema/i.test(applyResult.message),
+    'apply-result message must include the validator reason; got: ' + JSON.stringify(applyResult.message));
+
+  const warnedReason = warns.some(function (a) { return a.join(' ').indexOf('invalid-schema') !== -1; });
+  assert.ok(warnedReason, 'console.warn must mention "invalid-schema"; got: ' + JSON.stringify(warns));
+});
+
+test('U17-C2: validator returns suggestions all non-applicable → console.warn + apply-result message says "none applicable"', async () => {
+  const benignLoc = {
+    href: 'https://www.coursera.org/learn/x/lecture/v1/intro',
+    pathname: '/learn/x/lecture/v1/intro',
+    origin: 'https://www.coursera.org',
+  };
+  const doc = { body: {}, querySelector: function () { return null; } };
+  const snap = {
+    token: 't1', page: { eligible: true, blockedReason: null },
+    questions: [{ id: 'q1', order: 1, questionNumber: 1, type: 'single_choice', supported: true, alreadyAnswered: false, options: [{ id: 'q1o0', label: 'A' }] }],
+    supportedCount: 1, unsupportedCount: 0, actionableCount: 1, localGuard: [],
+  };
+  const qc = {
+    buildQuestionSnapshot: function () { return snap; },
+    sanitizeForRequest: function (s) { return s; },
+    isCurrentPageBlocked: function () { return { blocked: false, reason: null }; },
+    compareLocalGuards: function () { return { changed: false }; },
+  };
+  const validator = {
+    validateAndMap: function () {
+      return { ok: true, suggestions: [
+        { questionNumber: 1, type: 'single_choice', mappingStatus: 'wrong-type', applicable: false },
+        { questionNumber: 2, type: 'single_choice', mappingStatus: 'unknown-option', applicable: false },
+      ], rejectedCount: 2 };
+    },
+  };
+  const fakeSidebar = makeBlockedPageFakeSidebar();
+  const ctrl = createAiController({
+    sidebar: fakeSidebar,
+    questionContext: qc,
+    validator: validator,
+    answerApplier: { applyStructuredAnswers: function () { throw new Error('must not apply'); } },
+    messenger: { send: function (cmd, p, cb) { if (cmd === 'keyStatus') return cb({ ok: true, keyPresent: true, accessMode: 'personal-key' }); cb({ ok: true, raw: { answers: [] } }); } },
+    document: doc, location: benignLoc,
+    openOptionsFn: function (cb) { if (cb) cb({ ok: true }); },
+  });
+  ctrl.wire();
+  ctrl.performScan();
+
+  const origWarn = console.warn;
+  const warns = [];
+  console.warn = function () { warns.push(Array.prototype.slice.call(arguments)); };
+  try {
+    ctrl.performGenerate();
+    await new Promise(function (r) { setTimeout(r, 0); });
+  } finally { console.warn = origWarn; }
+
+  const applyResult = fakeSidebar._getLastApplyResult();
+  assert.ok(applyResult && typeof applyResult.message === 'string', 'apply-result must have a message');
+  assert.ok(/none.*applicable|0.*applicable/i.test(applyResult.message),
+    'apply-result message must indicate no applicable suggestions; got: ' + JSON.stringify(applyResult.message));
+
+  const warnedStatuses = warns.some(function (a) {
+    var s = JSON.stringify(a);
+    return s.indexOf('wrong-type') !== -1 && s.indexOf('unknown-option') !== -1;
+  });
+  assert.ok(warnedStatuses, 'console.warn must include per-suggestion mappingStatus values; got: ' + JSON.stringify(warns));
+});
+
+test('U17-C3: validator returns at least one applicable suggestion → existing happy path, no warning', async () => {
+  const benignLoc = {
+    href: 'https://www.coursera.org/learn/x/lecture/v1/intro',
+    pathname: '/learn/x/lecture/v1/intro',
+    origin: 'https://www.coursera.org',
+  };
+  const doc = { body: {}, querySelector: function () { return null; } };
+  const snap = {
+    token: 't1', page: { eligible: true, blockedReason: null },
+    questions: [{ id: 'q1', order: 1, questionNumber: 1, type: 'single_choice', supported: true, alreadyAnswered: false, options: [{ id: 'q1o0', label: 'A' }] }],
+    supportedCount: 1, unsupportedCount: 0, actionableCount: 1, localGuard: [],
+  };
+  const qc = {
+    buildQuestionSnapshot: function () { return snap; },
+    sanitizeForRequest: function (s) { return s; },
+    isCurrentPageBlocked: function () { return { blocked: false, reason: null }; },
+    compareLocalGuards: function () { return { changed: false }; },
+  };
+  const validator = {
+    validateAndMap: function () {
+      return { ok: true, suggestions: [
+        { questionNumber: 1, type: 'single_choice', mappingStatus: 'matched', applicable: true, choiceText: 'A' },
+      ], rejectedCount: 0 };
+    },
+  };
+  const fakeSidebar = makeBlockedPageFakeSidebar();
+  const ctrl = createAiController({
+    sidebar: fakeSidebar,
+    questionContext: qc,
+    validator: validator,
+    answerApplier: { applyStructuredAnswers: function () { throw new Error('must not apply'); } },
+    messenger: { send: function (cmd, p, cb) { if (cmd === 'keyStatus') return cb({ ok: true, keyPresent: true, accessMode: 'personal-key' }); cb({ ok: true, raw: { answers: [] } }); } },
+    document: doc, location: benignLoc,
+    openOptionsFn: function (cb) { if (cb) cb({ ok: true }); },
+  });
+  ctrl.wire();
+  ctrl.performScan();
+
+  const origWarn = console.warn;
+  const warns = [];
+  console.warn = function () { warns.push(Array.prototype.slice.call(arguments)); };
+  try {
+    ctrl.performGenerate();
+    await new Promise(function (r) { setTimeout(r, 0); });
+  } finally { console.warn = origWarn; }
+
+  assert.equal(warns.length, 0, 'no console.warn on happy path; got: ' + JSON.stringify(warns));
 });
