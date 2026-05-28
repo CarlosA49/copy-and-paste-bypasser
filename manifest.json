@@ -49,6 +49,7 @@
         "lib/answer-applier.js",
         "lib/ai-question-context.js",
         "lib/ai-answer-validator.js",
+        "lib/ai-answer-permissive.js",
         "lib/ai-answer-controller.js",
         "lib/ai-content-listeners.js",
         "lib/ai-open-options-content.js",

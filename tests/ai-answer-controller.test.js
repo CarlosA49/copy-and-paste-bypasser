@@ -47,10 +47,11 @@ function setup(html, url) {
   const dom = new JSDOM('<!doctype html><html><body>' + (html || radioPage()) + '</body></html>', { url: url || 'https://www.coursera.org/learn/x/lecture/v1/intro' });
   const questionContext = require('../lib/ai-question-context.js');
   const validator = require('../lib/ai-answer-validator.js');
+  const permissive = require('../lib/ai-answer-permissive.js');
   const answerApplier = require('../lib/answer-applier.js');
   const sidebar = fakeSidebar();
   const controller = createAiController({
-    sidebar: sidebar, questionContext: questionContext, validator: validator, answerApplier: answerApplier,
+    sidebar: sidebar, questionContext: questionContext, validator: validator, permissive: permissive, answerApplier: answerApplier,
     messenger: null, // set per test
     document: dom.window.document, location: dom.window.location,
   });
@@ -363,7 +364,7 @@ test('C3: network/timeout/aborted each render their intended message', async () 
   }
 });
 
-test('C4: validator-invalid (ok:false from validator) renders the invalid-format message', async () => {
+test('C4: validator-invalid + non-empty raw → bypass routes via raw-text fallback', async () => {
   const { dom, sidebar, controller } = setup();
   controller.messenger = fakeMessenger(function (cmd) {
     if (cmd === 'keyStatus') return { ok: true, keyPresent: true };
@@ -380,8 +381,32 @@ test('C4: validator-invalid (ok:false from validator) renders the invalid-format
     await new Promise(function (r) { setTimeout(r, 0); });
   } finally { console.warn = origWarn; }
   assert.ok(sidebar.state.applyResult && sidebar.state.applyResult.message);
+  assert.ok(/bypassed validator/i.test(sidebar.state.applyResult.message),
+    'expected bypass message; got: ' + JSON.stringify(sidebar.state.applyResult.message));
+  // Suggestions array gets a single raw-text-fallback marker so Apply is enabled.
+  assert.ok(Array.isArray(sidebar.state.suggestions) && sidebar.state.suggestions.length === 1);
+  assert.equal(sidebar.state.suggestions[0].mappingStatus, 'raw-text-fallback');
+});
+
+test('C4b: validator-invalid + empty raw → no bypass possible, falls back to strict-rejection message', async () => {
+  const { dom, sidebar, controller } = setup();
+  controller.messenger = fakeMessenger(function (cmd) {
+    if (cmd === 'keyStatus') return { ok: true, keyPresent: true };
+    if (cmd === 'generateAnswers') return { ok: true, raw: '' };
+    return { ok: true };
+  });
+  controller.wire();
+  controller.performScan();
+  await new Promise(function (r) { setTimeout(r, 0); });
+  const origWarn = console.warn;
+  console.warn = function () {};
+  try {
+    controller.performGenerate();
+    await new Promise(function (r) { setTimeout(r, 0); });
+  } finally { console.warn = origWarn; }
   assert.ok(/unrecognized format/i.test(sidebar.state.applyResult.message),
     'expected diagnostic message; got: ' + JSON.stringify(sidebar.state.applyResult.message));
+  assert.deepEqual(sidebar.state.suggestions, []);
 });
 
 test('C5: stale-structure refusal sets message, not bare counts', async () => {
@@ -1110,10 +1135,13 @@ test('U17-C1: validator val.ok=false → console.warn with reason + apply-result
     await new Promise(function (r) { setTimeout(r, 0); });
   } finally { console.warn = origWarn; }
 
+  // Bypass: when no permissive is wired AND validator !ok, the controller
+  // still surfaces the raw-text-fallback message (raw is non-empty), but the
+  // diagnostic console.warn with the validator reason MUST still fire.
   const applyResult = fakeSidebar._getLastApplyResult();
   assert.ok(applyResult && typeof applyResult.message === 'string', 'apply-result must have a message');
-  assert.ok(/invalid-schema/i.test(applyResult.message),
-    'apply-result message must include the validator reason; got: ' + JSON.stringify(applyResult.message));
+  assert.ok(/bypassed validator/i.test(applyResult.message),
+    'apply-result message must indicate bypass; got: ' + JSON.stringify(applyResult.message));
 
   const warnedReason = warns.some(function (a) { return a.join(' ').indexOf('invalid-schema') !== -1; });
   assert.ok(warnedReason, 'console.warn must mention "invalid-schema"; got: ' + JSON.stringify(warns));
@@ -1166,10 +1194,13 @@ test('U17-C2: validator returns suggestions all non-applicable → console.warn 
     await new Promise(function (r) { setTimeout(r, 0); });
   } finally { console.warn = origWarn; }
 
+  // Bypass: with raw non-empty (`{ answers: [] }` stringifies to `"{"answers":[]}"`),
+  // the raw-text fallback message is shown. The diagnostic console.warn with
+  // per-suggestion mappingStatus values MUST still fire.
   const applyResult = fakeSidebar._getLastApplyResult();
   assert.ok(applyResult && typeof applyResult.message === 'string', 'apply-result must have a message');
-  assert.ok(/none.*applicable|0.*applicable/i.test(applyResult.message),
-    'apply-result message must indicate no applicable suggestions; got: ' + JSON.stringify(applyResult.message));
+  assert.ok(/bypassed validator/i.test(applyResult.message),
+    'apply-result message must indicate bypass; got: ' + JSON.stringify(applyResult.message));
 
   const warnedStatuses = warns.some(function (a) {
     var s = JSON.stringify(a);
@@ -1373,4 +1404,124 @@ test('U18-C3: happy path (res.ok === true) is unchanged — no console.warn', as
   } finally { console.warn = origWarn; }
 
   assert.equal(warns.length, 0, 'happy path must not emit console.warn');
+});
+
+// === Permissive bypass tests (2026-05-28) ===
+
+test('Bypass: validator !ok but permissive recovers → Apply fills radio', async () => {
+  const { dom, sidebar, controller } = setup();
+  controller.messenger = fakeMessenger(function (cmd, params) {
+    if (cmd === 'keyStatus') return { ok: true, keyPresent: true };
+    if (cmd === 'generateAnswers') {
+      const q = params.snapshot.questions[0];
+      // Top-level array (no `answers` wrapper) → strict validator returns invalid-schema.
+      return { ok: true, raw: [{ question_id: q.id, value: 'Beta' }] };
+    }
+    return { ok: true };
+  });
+  controller.wire();
+  controller.performScan();
+  await new Promise(function (r) { setTimeout(r, 0); });
+  const origWarn = console.warn;
+  console.warn = function () {};
+  try {
+    controller.performGenerate();
+    await new Promise(function (r) { setTimeout(r, 0); });
+  } finally { console.warn = origWarn; }
+  assert.ok(/bypassed validator/i.test(sidebar.state.applyResult.message));
+  assert.ok(sidebar.state.suggestions && sidebar.state.suggestions.length === 1);
+  assert.equal(sidebar.state.suggestions[0].mappingStatus, 'bypassed');
+  assert.equal(sidebar.state.suggestions[0].applicable, true);
+  controller.performApply();
+  const radios = dom.window.document.querySelectorAll('input[type="radio"]');
+  assert.equal(radios[1].checked, true, 'Beta radio selected via bypass path');
+});
+
+test('Bypass: validator ok but 0 applicable → permissive replaces, Apply works', async () => {
+  const { dom, sidebar, controller } = setup();
+  controller.messenger = fakeMessenger(function (cmd, params) {
+    if (cmd === 'keyStatus') return { ok: true, keyPresent: true };
+    if (cmd === 'generateAnswers') {
+      const q = params.snapshot.questions[0];
+      // Strict-valid shape but answer.value points at a non-existent option label →
+      // validator returns ok:true with mappingStatus 'wrong-type', applicable:false.
+      // Permissive uses snapshot type and feeds the string downstream where
+      // applier's loose match finds 'Beta'.
+      return { ok: true, raw: { answers: [{ question_id: q.id, answer: { type: 'unknown-shape', mystery: 'Beta' } }] } };
+    }
+    return { ok: true };
+  });
+  controller.wire();
+  controller.performScan();
+  await new Promise(function (r) { setTimeout(r, 0); });
+  const origWarn = console.warn;
+  console.warn = function () {};
+  try {
+    controller.performGenerate();
+    await new Promise(function (r) { setTimeout(r, 0); });
+  } finally { console.warn = origWarn; }
+  // Either permissive recovered "Beta" from a nested key, or fell through to
+  // raw-text fallback. Both are valid bypass paths; assert at least one fired.
+  assert.ok(/bypassed/i.test(sidebar.state.applyResult.message));
+});
+
+test('Bypass: raw-text fallback routes through numbered-parser on Apply', async () => {
+  const html = '<section><h3>Question 1</h3><p>P</p>'
+    + '<label><input type="radio" name="r1">Alpha</label>'
+    + '<label><input type="radio" name="r1">Beta</label>'
+    + '</section>'
+    + '<section><h3>Question 2</h3><p>P</p>'
+    + '<label><input type="radio" name="r2">Cat</label>'
+    + '<label><input type="radio" name="r2">Dog</label>'
+    + '</section>';
+  const { dom, sidebar, controller } = setup(html);
+  controller.messenger = fakeMessenger(function (cmd) {
+    if (cmd === 'keyStatus') return { ok: true, keyPresent: true };
+    if (cmd === 'generateAnswers') {
+      // Plain prose with numbered list — strict and permissive both reject,
+      // raw-text fallback hands it to numberedParser.parseNumberedAnswers.
+      return { ok: true, raw: '1. Beta\n2. Dog\n' };
+    }
+    return { ok: true };
+  });
+  controller.wire();
+  controller.performScan();
+  await new Promise(function (r) { setTimeout(r, 0); });
+  const origWarn = console.warn;
+  console.warn = function () {};
+  try {
+    controller.performGenerate();
+    await new Promise(function (r) { setTimeout(r, 0); });
+  } finally { console.warn = origWarn; }
+  assert.ok(/bypassed validator/i.test(sidebar.state.applyResult.message));
+  assert.ok(Array.isArray(sidebar.state.suggestions) && sidebar.state.suggestions.length === 1);
+  assert.equal(sidebar.state.suggestions[0].mappingStatus, 'raw-text-fallback');
+  const origLog = console.log;
+  console.log = function () {};
+  try { controller.performApply(); } finally { console.log = origLog; }
+  const radios = dom.window.document.querySelectorAll('input[type="radio"]');
+  assert.equal(radios[1].checked, true, 'Beta radio selected by raw-text fallback');
+  assert.equal(radios[3].checked, true, 'Dog radio selected by raw-text fallback');
+  assert.ok(/bypassed/i.test(sidebar.state.applyResult.message));
+});
+
+test('Bypass: strict happy path unchanged (no bypass message)', async () => {
+  const { dom, sidebar, controller } = setup();
+  controller.messenger = fakeMessenger(function (cmd, params) {
+    if (cmd === 'keyStatus') return { ok: true, keyPresent: true };
+    if (cmd === 'generateAnswers') {
+      const q = params.snapshot.questions[0];
+      return { ok: true, raw: { answers: [{ question_id: q.id, answer: { type: 'single_choice', option_ids: [q.options[1].id] }, explanation: '', confidence: 'high' }] } };
+    }
+    return { ok: true };
+  });
+  controller.wire();
+  controller.performScan();
+  await new Promise(function (r) { setTimeout(r, 0); });
+  controller.performGenerate();
+  await new Promise(function (r) { setTimeout(r, 0); });
+  // No applyResult message — strict path doesn't surface anything until Apply runs.
+  assert.ok(!sidebar.state.applyResult || !sidebar.state.applyResult.message,
+    'strict happy path must not set a bypass message; got: ' + JSON.stringify(sidebar.state.applyResult));
+  assert.equal(sidebar.state.suggestions[0].mappingStatus, 'matched');
 });

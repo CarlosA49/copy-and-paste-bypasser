@@ -239,6 +239,7 @@
   function setupAiAnswerController() {
     var a = window.ClipboardCleaner || {};
     if (!a.sidebar || !a.aiQuestionContext || !a.aiAnswerValidator || !a.answerApplier || !a.aiAnswerController) return;
+    var permissive = a.aiAnswerPermissive || null;
     var messenger = {
       send: function (command, params, cb) {
         try {
@@ -247,7 +248,7 @@
       }
     };
     var controller = a.aiAnswerController.createAiController({
-      sidebar: a.sidebar, questionContext: a.aiQuestionContext, validator: a.aiAnswerValidator, answerApplier: a.answerApplier,
+      sidebar: a.sidebar, questionContext: a.aiQuestionContext, validator: a.aiAnswerValidator, permissive: permissive, answerApplier: a.answerApplier,
       messenger: messenger, document: document, location: window.location,
       openOptionsFn: (a.aiOpenOptionsContent && typeof a.aiOpenOptionsContent.createOpenOptionsCallback === 'function')
         ? a.aiOpenOptionsContent.createOpenOptionsCallback({ runtime: chrome.runtime })
