@@ -417,3 +417,23 @@ test('7-question "Final answers:" block with mixed text/radio/scientific is full
   assert.equal(q5[1].checked, false);
   assert.equal(q5[2].checked, true, 'Q5 "increase the frequency" must be selected');
 });
+
+test('multi-segment answer on single_choice with letter-only options → failed with diagnostic reason', () => {
+  const { JSDOM } = require('jsdom');
+  const dom = new JSDOM(
+    '<!doctype html><html><body>'
+    + '<section><h3>Question 1</h3><p>P</p>'
+    + '<label><input type="radio" name="r1" value="A">A</label>'
+    + '<label><input type="radio" name="r1" value="B">B</label>'
+    + '<label><input type="radio" name="r1" value="C">C</label>'
+    + '</section>'
+    + '</body></html>'
+  );
+  const raw = '1. (A) uncertainty, (B) fair, (C) 1';
+  const r = applyAnswers(raw, dom.window.document.body, { verbose: false });
+  assert.equal(r.results.length, 1);
+  assert.equal(r.results[0].status, 'failed');
+  assert.equal(r.results[0].reason, 'multi-segment-not-single-choice');
+  assert.equal(r.summary.failed, 1);
+  assert.equal(r.summary.filled, 0);
+});
