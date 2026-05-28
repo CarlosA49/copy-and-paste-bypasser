@@ -338,6 +338,27 @@ test('applyStructuredAnswers: never clicks submit/continue/check buttons', () =>
   assert.equal(clicked, false);
 });
 
+test('regression: short letter-only option labels do NOT substring-match long answer prose (all-A bug)', () => {
+  const dom2 = new JSDOM(
+    '<!doctype html><html><body>'
+    + '<section><h3>Question 1</h3><p>P</p>'
+    + '<label><input type="radio" name="r1" value="A">A</label>'
+    + '<label><input type="radio" name="r1" value="B">B</label>'
+    + '<label><input type="radio" name="r1" value="C">C</label>'
+    + '</section>'
+    + '</body></html>'
+  );
+  // Use numbered prefix so the answer is routed through pickChoice.
+  // Without the guard, the substring fallback finds "a" inside the prose and
+  // incorrectly selects option A (the all-A bug).
+  const raw = '1. (A) uncertainty, (B) fair, (C) 1';
+  applyAnswers(raw, dom2.window.document.body, { verbose: false });
+  const radios = dom2.window.document.querySelectorAll('input[type="radio"]');
+  assert.equal(radios[0].checked, false, 'option A must NOT be selected');
+  assert.equal(radios[1].checked, false);
+  assert.equal(radios[2].checked, false);
+});
+
 test('7-question "Final answers:" block with mixed text/radio/scientific is fully filled', () => {
   // Q3 ("the capacitor") and Q5 ("increase the frequency") are single-choice
   // radio groups in this mock — the spec says these should select their
