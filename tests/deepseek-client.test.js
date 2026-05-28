@@ -138,3 +138,34 @@ test('H9: createClient with no model option uses deepseek-v4-flash by default', 
   assert.equal(body.model, 'deepseek-v4-flash',
     'Default model must be deepseek-v4-flash. The legacy "deepseek-chat" alias is documented as deprecated 2026-07-24. Do not change the default unless official DeepSeek docs change.');
 });
+
+test('U15-P1: SYSTEM_PROMPT contains explicit math_input answer shape example', async () => {
+  let captured = null;
+  const f = makeFetch(function (url, init) {
+    try { captured = JSON.parse(init.body); } catch (_) {}
+    return makeResponse(200, { choices: [{ message: { content: JSON.stringify({ answers: [] }) } }] });
+  });
+  const c = createClient({ fetchFn: f });
+  await c.generateAnswers(SNAP, 'sk-fake');
+  assert.ok(captured, 'fetch must have been called with a body');
+  const systemMsg = captured.messages[0];
+  assert.equal(systemMsg.role, 'system');
+  const content = systemMsg.content;
+  assert.ok(content.indexOf('"type": "text"') !== -1 || content.indexOf('"type":"text"') !== -1,
+    'system prompt must contain the {"type":"text",...} answer shape');
+  assert.ok(content.indexOf('math_input') !== -1,
+    'system prompt must mention math_input by name so the model maps the page type to the shape');
+});
+
+test('U15-P2: SYSTEM_PROMPT still contains "json" (DeepSeek JSON-mode requirement)', async () => {
+  let captured = null;
+  const f = makeFetch(function (url, init) {
+    try { captured = JSON.parse(init.body); } catch (_) {}
+    return makeResponse(200, { choices: [{ message: { content: JSON.stringify({ answers: [] }) } }] });
+  });
+  const c = createClient({ fetchFn: f });
+  await c.generateAnswers(SNAP, 'sk-fake');
+  const systemMsg = captured.messages[0];
+  assert.ok(/\bjson\b/i.test(systemMsg.content),
+    'system prompt MUST contain the word "json" for DeepSeek JSON mode');
+});
