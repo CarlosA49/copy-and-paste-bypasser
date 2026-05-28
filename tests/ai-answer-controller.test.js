@@ -1226,3 +1226,151 @@ test('U17-C3: validator returns at least one applicable suggestion → existing 
 
   assert.equal(warns.length, 0, 'no console.warn on happy path; got: ' + JSON.stringify(warns));
 });
+
+// === U18: transport-error diagnostics in performGenerate ===
+
+test('U18-C1: transport !res.ok → console.warn with reason + detail; apply-result message includes detail excerpt', async () => {
+  const benignLoc = {
+    href: 'https://www.coursera.org/learn/x/lecture/v1/intro',
+    pathname: '/learn/x/lecture/v1/intro',
+    origin: 'https://www.coursera.org',
+  };
+  const doc = { body: {}, querySelector: function () { return null; } };
+  const snap = {
+    token: 't1', page: { eligible: true, blockedReason: null },
+    questions: [{ id: 'q1', order: 1, questionNumber: 1, type: 'single_choice', supported: true, alreadyAnswered: false, options: [{ id: 'q1o0', label: 'A' }] }],
+    supportedCount: 1, unsupportedCount: 0, actionableCount: 1, localGuard: [],
+  };
+  const qc = {
+    buildQuestionSnapshot: function () { return snap; },
+    sanitizeForRequest: function (s) { return s; },
+    isCurrentPageBlocked: function () { return { blocked: false, reason: null }; },
+    compareLocalGuards: function () { return { changed: false }; },
+  };
+  const fakeSidebar = makeBlockedPageFakeSidebar();
+  const ctrl = createAiController({
+    sidebar: fakeSidebar,
+    questionContext: qc,
+    validator: { validateAndMap: function () { throw new Error('validator must not run on transport failure'); } },
+    answerApplier: { applyStructuredAnswers: function () { throw new Error('must not apply'); } },
+    messenger: { send: function (cmd, p, cb) {
+      if (cmd === 'keyStatus') return cb({ ok: true, keyPresent: true, accessMode: 'personal-key' });
+      cb({ ok: false, reason: 'invalid-response', detail: 'http 400 {"error":{"message":"Model not found: deepseek-v4-flash"}}' });
+    } },
+    document: doc, location: benignLoc,
+    openOptionsFn: function (cb) { if (cb) cb({ ok: true }); },
+  });
+  ctrl.wire();
+  ctrl.performScan();
+
+  const origWarn = console.warn;
+  const warns = [];
+  console.warn = function () { warns.push(Array.prototype.slice.call(arguments)); };
+  try {
+    ctrl.performGenerate();
+    await new Promise(function (r) { setTimeout(r, 0); });
+  } finally { console.warn = origWarn; }
+
+  const applyResult = fakeSidebar._getLastApplyResult();
+  assert.ok(applyResult && typeof applyResult.message === 'string', 'apply-result must have a message');
+  assert.ok(/Model not found|deepseek-v4-flash/i.test(applyResult.message),
+    'apply-result message must include the detail excerpt; got: ' + JSON.stringify(applyResult.message));
+
+  const warned = warns.some(function (a) {
+    var s = JSON.stringify(a);
+    return s.indexOf('invalid-response') !== -1 && s.indexOf('Model not found') !== -1;
+  });
+  assert.ok(warned, 'console.warn must include reason + detail; got: ' + JSON.stringify(warns));
+});
+
+test('U18-C2: transport failure without detail still surfaces a useful message (no crash)', async () => {
+  const benignLoc = {
+    href: 'https://www.coursera.org/learn/x/lecture/v1/intro',
+    pathname: '/learn/x/lecture/v1/intro',
+    origin: 'https://www.coursera.org',
+  };
+  const doc = { body: {}, querySelector: function () { return null; } };
+  const snap = {
+    token: 't1', page: { eligible: true, blockedReason: null },
+    questions: [{ id: 'q1', order: 1, questionNumber: 1, type: 'single_choice', supported: true, alreadyAnswered: false, options: [{ id: 'q1o0', label: 'A' }] }],
+    supportedCount: 1, unsupportedCount: 0, actionableCount: 1, localGuard: [],
+  };
+  const qc = {
+    buildQuestionSnapshot: function () { return snap; },
+    sanitizeForRequest: function (s) { return s; },
+    isCurrentPageBlocked: function () { return { blocked: false, reason: null }; },
+    compareLocalGuards: function () { return { changed: false }; },
+  };
+  const fakeSidebar = makeBlockedPageFakeSidebar();
+  const ctrl = createAiController({
+    sidebar: fakeSidebar,
+    questionContext: qc,
+    validator: { validateAndMap: function () { throw new Error('must not run'); } },
+    answerApplier: { applyStructuredAnswers: function () { throw new Error('must not apply'); } },
+    messenger: { send: function (cmd, p, cb) {
+      if (cmd === 'keyStatus') return cb({ ok: true, keyPresent: true, accessMode: 'personal-key' });
+      cb({ ok: false, reason: 'network' });
+    } },
+    document: doc, location: benignLoc,
+    openOptionsFn: function (cb) { if (cb) cb({ ok: true }); },
+  });
+  ctrl.wire();
+  ctrl.performScan();
+
+  const origWarn = console.warn;
+  console.warn = function () {};
+  try {
+    ctrl.performGenerate();
+    await new Promise(function (r) { setTimeout(r, 0); });
+  } finally { console.warn = origWarn; }
+
+  const applyResult = fakeSidebar._getLastApplyResult();
+  assert.ok(applyResult && typeof applyResult.message === 'string');
+  assert.ok(/network/i.test(applyResult.message),
+    'no-detail failure should still surface the reason; got: ' + JSON.stringify(applyResult.message));
+});
+
+test('U18-C3: happy path (res.ok === true) is unchanged — no console.warn', async () => {
+  const benignLoc = {
+    href: 'https://www.coursera.org/learn/x/lecture/v1/intro',
+    pathname: '/learn/x/lecture/v1/intro',
+    origin: 'https://www.coursera.org',
+  };
+  const doc = { body: {}, querySelector: function () { return null; } };
+  const snap = {
+    token: 't1', page: { eligible: true, blockedReason: null },
+    questions: [{ id: 'q1', order: 1, questionNumber: 1, type: 'single_choice', supported: true, alreadyAnswered: false, options: [{ id: 'q1o0', label: 'A' }] }],
+    supportedCount: 1, unsupportedCount: 0, actionableCount: 1, localGuard: [],
+  };
+  const qc = {
+    buildQuestionSnapshot: function () { return snap; },
+    sanitizeForRequest: function (s) { return s; },
+    isCurrentPageBlocked: function () { return { blocked: false, reason: null }; },
+    compareLocalGuards: function () { return { changed: false }; },
+  };
+  const validator = {
+    validateAndMap: function () { return { ok: true, suggestions: [{ questionNumber: 1, type: 'single_choice', mappingStatus: 'matched', applicable: true, choiceText: 'A' }], rejectedCount: 0 }; },
+  };
+  const fakeSidebar = makeBlockedPageFakeSidebar();
+  const ctrl = createAiController({
+    sidebar: fakeSidebar,
+    questionContext: qc,
+    validator: validator,
+    answerApplier: { applyStructuredAnswers: function () { throw new Error('must not apply'); } },
+    messenger: { send: function (cmd, p, cb) { if (cmd === 'keyStatus') return cb({ ok: true, keyPresent: true, accessMode: 'personal-key' }); cb({ ok: true, raw: { answers: [] } }); } },
+    document: doc, location: benignLoc,
+    openOptionsFn: function (cb) { if (cb) cb({ ok: true }); },
+  });
+  ctrl.wire();
+  ctrl.performScan();
+
+  const origWarn = console.warn;
+  const warns = [];
+  console.warn = function () { warns.push(arguments); };
+  try {
+    ctrl.performGenerate();
+    await new Promise(function (r) { setTimeout(r, 0); });
+  } finally { console.warn = origWarn; }
+
+  assert.equal(warns.length, 0, 'happy path must not emit console.warn');
+});
