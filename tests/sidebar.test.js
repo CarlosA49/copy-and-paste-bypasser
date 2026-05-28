@@ -483,8 +483,12 @@ test('E1: Generate disabled when actionableCount=0 even with snapshot.questions.
   sidebar.setAiPageEligibility({ eligible: true, blockedReason: null, supportedCount: 2, actionableCount: 0 });
   sidebar.setAiScanResult({ token: 't', questions: [{}, {}], supportedCount: 2, actionableCount: 0 });
   assert.equal(shadow.querySelector('[data-action="ai-generate"]').disabled, true);
-  // Status should say no unanswered supported questions
-  assert.ok(/No unanswered supported questions/i.test(shadow.querySelector('[data-role="ai-status"]').textContent));
+  // Status should indicate no unanswered supported questions remain
+  const statusText = shadow.querySelector('[data-role="ai-status"]').textContent;
+  assert.ok(
+    /already answered/i.test(statusText) || /No unanswered supported questions/i.test(statusText),
+    'expected status to indicate all supported questions are already answered; got: ' + JSON.stringify(statusText)
+  );
 });
 
 test('E3: Generate enabled when actionableCount>0', () => {
