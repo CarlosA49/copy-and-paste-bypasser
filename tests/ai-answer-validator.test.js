@@ -285,3 +285,94 @@ test('U17-V11: single_choice with option_ids referring to an unknown id is rejec
   assert.equal(out.suggestions[0].applicable, false);
   assert.equal(out.suggestions[0].mappingStatus, 'unknown-option');
 });
+
+// === U17: tolerant multiple_choice resolution paths ===
+
+test('U17-V12: multiple_choice with option_ids array (canonical) still works', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q2', answer: { type: 'multiple_choice', option_ids: ['q2o0', 'q2o2'] } }]
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, true);
+  assert.equal(out.suggestions[0].mappingStatus, 'matched');
+  assert.deepEqual(out.suggestions[0].choiceTexts, ['A', 'C']);
+});
+
+test('U17-V13: multiple_choice with letters array is accepted', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q2', answer: { type: 'multiple_choice', letters: ['A', 'C'] } }]
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, true);
+  assert.deepEqual(out.suggestions[0].choiceTexts, ['A', 'C']);
+});
+
+test('U17-V14: multiple_choice with values array of labels is accepted', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q2', answer: { type: 'multiple_choice', values: ['A', 'B'] } }]
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, true);
+  assert.deepEqual(out.suggestions[0].choiceTexts, ['A', 'B']);
+});
+
+test('U17-V15: multiple_choice with comma-separated value string is accepted', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q2', answer: { type: 'multiple_choice', value: 'A, C' } }]
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, true);
+  assert.deepEqual(out.suggestions[0].choiceTexts, ['A', 'C']);
+});
+
+test('U17-V16: multiple_choice with "A and B" connector value is accepted', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q2', answer: { type: 'multiple_choice', value: 'A and B' } }]
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, true);
+  assert.deepEqual(out.suggestions[0].choiceTexts, ['A', 'B']);
+});
+
+test('U17-V17: multiple_choice with bracketed value "[A, C]" is accepted', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q2', answer: { type: 'multiple_choice', value: '[A, C]' } }]
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, true);
+  assert.deepEqual(out.suggestions[0].choiceTexts, ['A', 'C']);
+});
+
+test('U17-V18: multiple_choice with bare-string a.answer "A, C" is accepted', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q2', answer: 'A, C' }]
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, true);
+  assert.deepEqual(out.suggestions[0].choiceTexts, ['A', 'C']);
+});
+
+test('U17-V19: multiple_choice with one resolvable and one unresolvable letter keeps the resolvable one', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q2', answer: { type: 'multiple_choice', letters: ['A', 'Z'] } }]
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, true);
+  assert.deepEqual(out.suggestions[0].choiceTexts, ['A']);
+});
+
+test('U17-V20: multiple_choice with zero resolvable letters is rejected as wrong-type', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q2', answer: { type: 'multiple_choice', letters: ['Z', 'Y'] } }]
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, false);
+  assert.equal(out.suggestions[0].mappingStatus, 'wrong-type');
+});
+
+test('U17-V21: multiple_choice with option_ids array referring only to unknown ids is rejected as unknown-option', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q2', answer: { type: 'multiple_choice', option_ids: ['q2o999'] } }]
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, false);
+  assert.equal(out.suggestions[0].mappingStatus, 'unknown-option');
+});
+
+test('U17-V22: multiple_choice with duplicate letters de-duplicates in the output', () => {
+  const out = v.validateAndMap({
+    answers: [{ question_id: 'q2', answer: { type: 'multiple_choice', letters: ['A', 'A', 'C'] } }]
+  }, SNAP);
+  assert.equal(out.suggestions[0].applicable, true);
+  assert.deepEqual(out.suggestions[0].choiceTexts, ['A', 'C']);
+});
