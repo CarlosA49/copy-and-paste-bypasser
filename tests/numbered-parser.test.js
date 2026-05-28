@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { parseNumberedAnswers, parseOrderedLines } = require('../lib/numbered-parser.js');
+const numberedParser = require('../lib/numbered-parser.js');
 
 test('parses simple numbered list', () => {
   const r = parseNumberedAnswers('1. 0.0539\n2. 2*epsilon_o*E_o/r\n3. 0');
@@ -206,4 +207,76 @@ test('parseOrderedLines: "Here are the answers:" header is stripped', () => {
   const r = parseOrderedLines('Here are the answers:\nx\ny', 2);
   assert.equal(r.length, 2);
   assert.equal(r[0].rawAnswer, 'x');
+});
+
+test('parseAnswerSegments: letter segments with (A) (B) (C)', () => {
+  const r = numberedParser.parseAnswerSegments('(A) uncertainty, (B) fair, (C) 1');
+  assert.deepEqual(r, { kind: 'letters', items: [
+    { label: 'A', value: 'uncertainty' },
+    { label: 'B', value: 'fair' },
+    { label: 'C', value: '1' },
+  ]});
+});
+
+test('parseAnswerSegments: letter segments with A. B. C.', () => {
+  const r = numberedParser.parseAnswerSegments('A. apple, B. banana, C. cherry');
+  assert.equal(r.kind, 'letters');
+  assert.deepEqual(r.items.map(i => i.label), ['A', 'B', 'C']);
+  assert.deepEqual(r.items.map(i => i.value), ['apple', 'banana', 'cherry']);
+});
+
+test('parseAnswerSegments: letter segments tolerant of inner punctuation in value', () => {
+  const r = numberedParser.parseAnswerSegments('(A) N₀/2, (B) N₀W, (C) 2W, (D) W log₂(1 + P/N₀W)');
+  assert.equal(r.kind, 'letters');
+  assert.equal(r.items.length, 4);
+  assert.equal(r.items[3].value, 'W log₂(1 + P/N₀W)');
+});
+
+test('parseAnswerSegments: single (A) item is NOT segments (needs ≥2 distinct letters)', () => {
+  assert.equal(numberedParser.parseAnswerSegments('(A) only one'), null);
+});
+
+test('parseAnswerSegments: repeated letter "(A) x, (A) y" is NOT segments', () => {
+  assert.equal(numberedParser.parseAnswerSegments('(A) x, (A) y'), null);
+});
+
+test('parseAnswerSegments: sequence with en-dash separator', () => {
+  const r = numberedParser.parseAnswerSegments('Channel Encoding – Constellation Mapping – Waveform Mapping');
+  assert.deepEqual(r, { kind: 'sequence', items: [
+    { label: null, value: 'Channel Encoding' },
+    { label: null, value: 'Constellation Mapping' },
+    { label: null, value: 'Waveform Mapping' },
+  ]});
+});
+
+test('parseAnswerSegments: sequence with ≥ separator', () => {
+  const r = numberedParser.parseAnswerSegments('TDMA ≥ FDMA ≥ CDMA');
+  assert.equal(r.kind, 'sequence');
+  assert.deepEqual(r.items.map(i => i.value), ['TDMA', 'FDMA', 'CDMA']);
+});
+
+test('parseAnswerSegments: sequence with → separator', () => {
+  const r = numberedParser.parseAnswerSegments('first → second → third');
+  assert.equal(r.kind, 'sequence');
+  assert.equal(r.items.length, 3);
+});
+
+test('parseAnswerSegments: prose with single comma is NOT segments', () => {
+  assert.equal(numberedParser.parseAnswerSegments('one comma, two comma'), null);
+});
+
+test('parseAnswerSegments: long prose with no separators returns null', () => {
+  assert.equal(numberedParser.parseAnswerSegments('If users in different cells reuse the same frequency channels, the required bandwidth becomes much reduced.'), null);
+});
+
+test('parseAnswerSegments: returns null for empty / non-string', () => {
+  assert.equal(numberedParser.parseAnswerSegments(''), null);
+  assert.equal(numberedParser.parseAnswerSegments(null), null);
+  assert.equal(numberedParser.parseAnswerSegments(42), null);
+});
+
+test('parseAnswerSegments: letters beat sequence when both present', () => {
+  const r = numberedParser.parseAnswerSegments('(A) X – Y, (B) Z – W');
+  assert.equal(r.kind, 'letters');
+  assert.equal(r.items.length, 2);
 });
