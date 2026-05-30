@@ -6741,3 +6741,17 @@ test('navigateAndConfirm treats an external LTI launch page as navigated (return
   const ok = await ap._test.navigateAndConfirm(url);
   assert.equal(ok, true);
 });
+
+test('isFailureOutcome: AI pause tokens pause; skip tokens advance; legacy tokens unchanged', () => {
+  const { isFailureOutcome } = require('../lib/module-autopilot.js');
+  // AI fill/no-answer outcomes are deliberate pauses-for-review (MUST be failures so the loop pauses):
+  assert.equal(isFailureOutcome({ outcome: 'assessment-ai-answered-paused' }), true, 'AI-answered must PAUSE for review');
+  assert.equal(isFailureOutcome({ outcome: 'assessment-ai-no-answer' }), true, 'no-AI-answer must PAUSE for review');
+  // Skip outcomes are skip-and-continue (NOT failures; the loop advances past them via Task 12's skip branch):
+  assert.equal(isFailureOutcome({ outcome: 'assessment-skipped-lti' }), false, 'LTI skip must NOT pause');
+  assert.equal(isFailureOutcome({ outcome: 'assessment-skipped-programming' }), false, 'programming skip must NOT pause');
+  // Legacy behavior preserved:
+  assert.equal(isFailureOutcome({ outcome: 'assignment-agreement-accepted-paused' }), true);
+  assert.equal(isFailureOutcome({ outcome: 'quiz-filled-paused-for-review' }), true);
+  assert.equal(isFailureOutcome({ outcome: 'pause-needed-no-answer' }), true);
+});
