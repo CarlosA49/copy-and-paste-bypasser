@@ -613,3 +613,33 @@ test('applyAnswers: plain-text answer into a non-numeric text input is not math-
   const input = doc.querySelector('input[name="q1"]');
   assert.equal(input.value, 'one', 'plain word must be filled verbatim, not normalized');
 });
+
+test('applyStructuredAnswers: dropdown selects the option whose text matches value', () => {
+  const j = new JSDOM('<!doctype html><html><body>' +
+    '<div data-testid="cml-question-1"><div>Question 1</div>' +
+    '<select name="q1"><option>Alpha</option><option>Beta</option><option>Gamma</option></select></div>' +
+    '</body></html>', { url: 'https://www.coursera.org/learn/x/quiz/q/a' });
+  const doc = j.window.document;
+  const r = applyStructuredAnswers([{ questionNumber: 1, type: 'dropdown', value: 'Beta' }], doc.body, { verbose: false });
+  const sel = doc.querySelector('select[name="q1"]');
+  assert.equal(sel.value, 'Beta');
+  assert.equal(r.summary.filled, 1);
+});
+
+test('applyStructuredAnswers: free_text and code fill, file_upload is pause-only', () => {
+  const j = new JSDOM('<!doctype html><html><body>' +
+    '<div data-testid="cml-question-1"><div>Question 1</div><textarea name="ft"></textarea></div>' +
+    '<div data-testid="cml-question-2"><div>Question 2</div><div data-testid="code-editor"><textarea name="cd"></textarea></div></div>' +
+    '<div data-testid="cml-question-3"><div>Question 3</div><input type="file" name="fu"></div>' +
+    '</body></html>', { url: 'https://www.coursera.org/learn/x/quiz/q/a' });
+  const doc = j.window.document;
+  const r = applyStructuredAnswers([
+    { questionNumber: 1, type: 'free_text', value: 'a thoughtful answer' },
+    { questionNumber: 2, type: 'code', value: 'print(42)' },
+    { questionNumber: 3, type: 'file_upload', value: '' },
+  ], doc.body, { verbose: false });
+  assert.equal(doc.querySelector('textarea[name="ft"]').value, 'a thoughtful answer');
+  assert.equal(doc.querySelector('textarea[name="cd"]').value, 'print(42)');
+  const fu = r.results.find(function (x) { return x.questionNumber === 3; });
+  assert.equal(fu.status, 'pause-only');
+});
