@@ -114,3 +114,44 @@ test('deepseek parseResponse normalizes choices[0].message.content to raw.answer
   assert.equal(r.ok, true);
   assert.equal(r.raw.answers[0].question_id, 'q1');
 });
+
+test('anthropic buildRequest sends the key in x-api-key (not Authorization) with anthropic-version header', () => {
+  const a = aiProviders.get('anthropic');
+  const req = a.buildRequest(SNAP, 'sk-ANT-SECRET', { model: 'claude-3-5-haiku-latest' });
+  assert.equal(req.url, 'https://api.anthropic.com/v1/messages');
+  assert.equal(req.method, 'POST');
+  assert.equal(req.headers['x-api-key'], 'sk-ANT-SECRET');
+  assert.ok(typeof req.headers['anthropic-version'] === 'string' && req.headers['anthropic-version'].length > 0);
+  assert.equal(req.headers.Authorization, undefined, 'anthropic must NOT use a Bearer Authorization header');
+  const body = JSON.parse(req.body);
+  assert.equal(body.model, 'claude-3-5-haiku-latest');
+  assert.ok(typeof body.system === 'string' && /\bjson\b/i.test(body.system));
+  assert.ok(typeof body.max_tokens === 'number');
+  const userMsg = body.messages.find(function (m) { return m.role === 'user'; });
+  assert.ok(userMsg.content.indexOf('"q1"') !== -1);
+  assert.equal(req.body.indexOf('sk-ANT-SECRET'), -1);
+});
+
+test('anthropic parseResponse reads content[0].text and JSON.parses into raw.answers', () => {
+  const a = aiProviders.get('anthropic');
+  const r = a.parseResponse({ content: [{ type: 'text', text: JSON.stringify({ answers: [{ question_id: 'q1' }] }) }] });
+  assert.equal(r.ok, true);
+  assert.equal(r.raw.answers[0].question_id, 'q1');
+});
+
+test('anthropic parseResponse returns {ok:true, raw:{_raw}} for non-JSON text', () => {
+  const a = aiProviders.get('anthropic');
+  const r = a.parseResponse({ content: [{ type: 'text', text: 'plain words' }] });
+  assert.equal(r.ok, true);
+  assert.equal(r.raw._raw, 'plain words');
+});
+
+test('anthropic createClient end-to-end never leaks the key into body or return', async () => {
+  const f = makeFetch(function () { return makeResponse(200, { content: [{ type: 'text', text: '{"answers":[]}' }] }); });
+  const c = aiProviders.get('anthropic').createClient({ fetchFn: f });
+  const r = await c.generateAnswers(SNAP, 'sk-ANT-SECRET');
+  assert.equal(r.ok, true);
+  assert.equal(JSON.stringify(r).indexOf('sk-ANT-SECRET'), -1);
+  assert.equal(String(f.calls[0].init.body || '').indexOf('sk-ANT-SECRET'), -1);
+  assert.equal(f.calls[0].init.headers['x-api-key'], 'sk-ANT-SECRET');
+});
