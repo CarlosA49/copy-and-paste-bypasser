@@ -6908,3 +6908,58 @@ test('runCurrentItem: AI-answered pause logs filled count + "paused for review";
   assert.ok(logs2.some(function (s) { return /skip/i.test(s) && /(lti|external|app)/i.test(s); }),
     'must log a skip line with the LTI/external reason');
 });
+
+test('integration: toggle ON drives assessmentAi to FILL + PAUSE a quiz (cursor frozen, no submit)', async () => {
+  const QUIZ_HTML =
+    '<div data-testid="cml-question-1"><div>Question 1</div><fieldset>' +
+      '<label><input type="radio" name="q1"> Alpha</label>' +
+      '<label><input type="radio" name="q1"> Beta</label>' +
+    '</fieldset></div>' +
+    '<button type="submit">Submit</button>';
+  const j = makePage(QUIZ_HTML, 'https://www.coursera.org/learn/x/quiz/q1/intro-quiz');
+  const doc = j.window.document;
+  let submitted = false;
+  doc.querySelector('button[type="submit"]').click = function () { submitted = true; };
+  const storage = fakeStorage();
+  let pausedBanner = null;
+  const handlers = require('../lib/item-handlers.js').createHandlers({
+    sleep: function () { return Promise.resolve(); },
+    timing: require('../lib/autopilot-timing.js'),
+    answerApplier: require('../lib/answer-applier.js'),
+    questionContext: require('../lib/ai-question-context.js'),
+    validator: require('../lib/ai-answer-validator.js'),
+    permissive: require('../lib/ai-answer-permissive.js'),
+    courseraDom: { isExternalLaunchPage: function () { return false; }, assessmentRoot: function (d) { return d.body; }, isExcludedNode: function () { return false; } },
+  });
+  handlers.video = function () { return Promise.resolve({ outcome: 'video-done' }); };
+  handlers.reading = function () { return Promise.resolve({ outcome: 'reading-done' }); };
+  handlers.discussion = function () { return Promise.resolve({ outcome: 'discussion-posted' }); };
+  const ap = createAutopilot({
+    document: doc, window: j.window, storage: storage, handlers: handlers,
+    nowFn: function () { return 1_000_000; }, tabKey: 'tab-1', rng: seededRng(1),
+    navigate: function () { return Promise.resolve(); },
+    aiGenerate: function (snapshot) { return Promise.resolve({ ok: true, raw: JSON.stringify({ answers: [{ question_id: 'q1', answer: { value: 'Beta' } }] }) }); },
+    sidebar: { setAutopilotStatus: function () {}, appendAutopilotLog: function () {}, setAutopilotPaused: function (on, reason) { if (on) pausedBanner = reason; }, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; } },
+  });
+  const d = stateMod.defaults();
+  d.status = 'running'; d.courseId = 'x'; d.ownerTabKey = 'tab-1'; d.runId = 'r1';
+  d.settings.aiAnswerAssessments = true;
+  d.queue = [{ id: 'q1', kind: 'quiz', url: '/learn/x/quiz/q1/intro-quiz', title: 'Quiz One', aiAnswerable: true }];
+  d.cursor = 0;
+  await new Promise(function (r) { storage.set({ [stateMod.RUN_KEY]: d }, r); });
+  await ap.bootIfRunning();
+  // (a) AI selected the radio.
+  const checked = doc.querySelectorAll('input[name="q1"]:checked');
+  assert.equal(checked.length, 1, 'AI must have selected one radio');
+  assert.equal(checked[0].parentElement.textContent.trim(), 'Beta');
+  // (e) never auto-submitted.
+  assert.equal(submitted, false, 'must NOT auto-submit AI-answered assessments');
+  // (b)-(d) the run actually PAUSED — load the persisted state and assert it did
+  // not advance.
+  const persisted = await new Promise(function (r) { storage.get([stateMod.RUN_KEY], function (g) { r(g[stateMod.RUN_KEY]); }); });
+  assert.equal(persisted.status, 'paused', 'run must be PAUSED after AI fills the quiz');
+  assert.equal(persisted.cursor, 0, 'cursor must NOT advance past the filled quiz');
+  assert.ok(Array.isArray(persisted.queue) && persisted.queue.length === 1, 'queue must be retained (not cleared as if complete)');
+  assert.ok(persisted.lastPauseReason && /AI filled the answers|review and submit/i.test(persisted.lastPauseReason), 'lastPauseReason must reflect the AI-answered pause');
+  assert.ok(pausedBanner && /AI filled the answers|review and submit/i.test(pausedBanner), 'sidebar pause banner must reflect the AI-answered pause');
+});
