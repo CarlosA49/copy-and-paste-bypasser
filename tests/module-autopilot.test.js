@@ -6652,3 +6652,92 @@ test('PHASE 18 C1: ordering — setAutopilotButtonsRunning(true) must occur BEFO
     JSON.stringify(sidebarCallOrder));
 });
 
+
+// ─── Task 13: navigateAndConfirm hardening (timeout, id-confirm, fallbacks) ───
+
+test('createAutopilot defaults navigateUrlChangeTimeoutMs to 800ms (widened from 100ms)', () => {
+  const j = makePage('', 'https://www.coursera.org/learn/x/lecture/v1/intro');
+  const ap = createAutopilot({
+    document: j.window.document,
+    window: j.window,
+    storage: fakeStorage(),
+    handlers: {},
+    nowFn: function () { return 0; },
+    rng: function () { return 0.5; },
+  });
+  assert.equal(ap._test.navigateUrlChangeTimeoutMs, 800);
+});
+
+test('navigateAndConfirm confirms a URL change only when the new URL item id matches the target', async () => {
+  const j = makePage('<main></main>', 'https://www.coursera.org/learn/x/lecture/v1/intro');
+  const ap = createAutopilot({
+    document: j.window.document,
+    window: j.window,
+    storage: fakeStorage(),
+    handlers: {},
+    nowFn: function () { return 0; },
+    rng: function () { return 0.5; },
+    navigate: function () {
+      try { j.window.history.pushState({}, '', 'https://www.coursera.org/learn/x/lecture/v2/next'); } catch (_) {}
+      return Promise.resolve();
+    },
+    navigateUrlChangeTimeoutMs: 200,
+  });
+  const ok = await ap._test.navigateAndConfirm('https://www.coursera.org/learn/x/lecture/v2/next');
+  assert.equal(ok, true);
+});
+
+test('navigateAndConfirm does NOT accept a URL change to a DIFFERENT item id (interstitial); falls through', async () => {
+  const j = makePage('<main></main>', 'https://www.coursera.org/learn/x/lecture/v1/intro');
+  const ap = createAutopilot({
+    document: j.window.document,
+    window: j.window,
+    storage: fakeStorage(),
+    handlers: {},
+    nowFn: function () { return 0; },
+    rng: function () { return 0.5; },
+    navigate: function () {
+      try { j.window.history.pushState({}, '', 'https://www.coursera.org/learn/x/lecture/zzz/interstitial'); } catch (_) {}
+      return Promise.resolve();
+    },
+    navigateUrlChangeTimeoutMs: 80,
+  });
+  const ok = await ap._test.navigateAndConfirm('https://www.coursera.org/learn/x/lecture/v2/next');
+  assert.equal(ok, false);
+});
+
+test('navigateAndConfirm clicks the Go to next item button when no matching row anchor exists', async () => {
+  const j = makePage('<main><div role="button" id="next">Go to next item</div></main>', 'https://www.coursera.org/learn/x/lecture/v1/intro');
+  let clicked = false;
+  j.window.document.getElementById('next').addEventListener('click', function () { clicked = true; });
+  const ap = createAutopilot({
+    document: j.window.document,
+    window: j.window,
+    storage: fakeStorage(),
+    handlers: {},
+    nowFn: function () { return 0; },
+    rng: function () { return 0.5; },
+    navigate: function () { return Promise.resolve(); },
+    navigateUrlChangeTimeoutMs: 10,
+  });
+  const ok = await ap._test.navigateAndConfirm('https://www.coursera.org/learn/x/lecture/v2/next');
+  assert.equal(clicked, true);
+  assert.equal(ok, true);
+});
+
+test('navigateAndConfirm treats an external LTI launch page as navigated (returns true)', async () => {
+  const url = 'https://www.coursera.org/learn/matlab/gradedLti/0OaH5/assignment-echo-generator';
+  const j = makePage('<main><form role="form" aria-label="Launch App" action="https://learningtool.mathworks.com/lti/oidc" method="post"><button>Launch app. Opens in new window</button></form></main>', url);
+  const ap = createAutopilot({
+    document: j.window.document,
+    window: j.window,
+    storage: fakeStorage(),
+    handlers: {},
+    nowFn: function () { return 0; },
+    rng: function () { return 0.5; },
+    navigate: function () { return Promise.resolve(); },
+    navigateUrlChangeTimeoutMs: 10,
+  });
+  const ok = await ap._test.navigateAndConfirm(url);
+  assert.equal(ok, true);
+});
