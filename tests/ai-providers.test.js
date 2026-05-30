@@ -230,3 +230,47 @@ test('custom createClient end-to-end uses the supplied baseUrl and never leaks t
   assert.equal(JSON.stringify(r).indexOf('sk-CUSTOM'), -1);
   assert.equal(String(f.calls[0].init.body || '').indexOf('sk-CUSTOM'), -1);
 });
+
+test('deepseek-client delegates to ai-providers: ai-providers is pulled into deepseek-client require graph', () => {
+  const path = require('path');
+  const providersPath = path.resolve(__dirname, '..', 'lib', 'ai-providers.js');
+  const clientPath = path.resolve(__dirname, '..', 'lib', 'deepseek-client.js');
+  delete require.cache[clientPath];
+  delete require.cache[providersPath];
+  require(clientPath);
+  assert.ok(
+    Object.prototype.hasOwnProperty.call(require.cache, providersPath),
+    'deepseek-client.js must require ai-providers.js (delegation), not duplicate the transport'
+  );
+});
+
+test('deepseek-client createClient produces a request identical in shape to the deepseek adapter', async () => {
+  const { createClient } = require('../lib/deepseek-client.js');
+  const f = makeFetch(function () { return makeResponse(200, { choices: [{ message: { content: '{"answers":[]}' } }] }); });
+  const c = createClient({ fetchFn: f });
+  const r = await c.generateAnswers(SNAP, 'sk-DELEGATE');
+  assert.equal(r.ok, true);
+  const sent = f.calls[0];
+  assert.equal(sent.url, 'https://api.deepseek.com/chat/completions');
+  assert.equal(sent.init.headers.Authorization, 'Bearer sk-DELEGATE');
+  const body = JSON.parse(sent.init.body);
+  assert.equal(body.model, 'deepseek-chat');
+  assert.equal(body.response_format.type, 'json_object');
+  assert.equal(String(sent.init.body || '').indexOf('sk-DELEGATE'), -1);
+  assert.equal(JSON.stringify(r).indexOf('sk-DELEGATE'), -1);
+});
+
+test('D-PROMPT: deepseek-client fallback SYSTEM_PROMPT is byte-identical to the ai-providers SYSTEM_PROMPT', () => {
+  const fs = require('fs');
+  const path = require('path');
+  function extractPromptArray(file) {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'lib', file), 'utf8');
+    const m = src.match(/var SYSTEM_PROMPT = \[([\s\S]*?)\]\.join\('\n'\);/);
+    assert.ok(m, 'SYSTEM_PROMPT array literal must be present in lib/' + file);
+    return m[1].replace(/\s+/g, ' ').trim();
+  }
+  const providersPrompt = extractPromptArray('ai-providers.js');
+  const clientPrompt = extractPromptArray('deepseek-client.js');
+  assert.equal(clientPrompt, providersPrompt,
+    'deepseek-client fallback SYSTEM_PROMPT has drifted from ai-providers SYSTEM_PROMPT — keep them byte-identical');
+});
