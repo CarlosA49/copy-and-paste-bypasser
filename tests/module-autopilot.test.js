@@ -6996,3 +6996,130 @@ test('peer/peer-review kind routes to the peerReview handler when present', () =
   assert.equal(resolve('peer-review', handlers), peerReview);
   assert.equal(resolve('quiz', handlers), fallback, 'unknown kind still falls back');
 });
+
+// ---- Phase D (Task 8): peer-review run-log formatter ----
+test('formatPeerReviewLogLines summarizes selections, flags low-confidence, and notes auto-submit', () => {
+  const mod = require('../lib/module-autopilot.js');
+  const lines = mod._formatPeerReviewLogLines({
+    outcome: 'peer-review-submitted',
+    selections: [
+      { label: 'Clarity', points: 2, lowConfidence: false },
+      { label: 'Depth', points: null, lowConfidence: true },
+    ],
+    usedComments: ['a', 'b'],
+  });
+  assert.ok(Array.isArray(lines));
+  // One line per criterion + one auto-submit line.
+  assert.equal(lines.length, 3);
+  assert.ok(/Clarity/.test(lines[0]) && /2/.test(lines[0]));
+  assert.ok(/Depth/.test(lines[1]) && /low.?confidence/i.test(lines[1]), 'low-confidence flagged: ' + lines[1]);
+  assert.ok(/submitted/i.test(lines[2]) && /✓/.test(lines[2]), 'auto-submit line: ' + lines[2]);
+  // Plural counts (2 criteria, 2 comments) read as plurals.
+  assert.ok(/2 criteria/.test(lines[2]), 'plural criteria: ' + lines[2]);
+  assert.ok(/2 comments/.test(lines[2]), 'plural comments: ' + lines[2]);
+});
+
+test('formatPeerReviewLogLines pluralizes single counts (criterion/comment)', () => {
+  const mod = require('../lib/module-autopilot.js');
+  const lines = mod._formatPeerReviewLogLines({
+    outcome: 'peer-review-submitted',
+    selections: [{ label: 'Clarity', points: 2, lowConfidence: false }],
+    usedComments: ['only one'],
+  });
+  const submitLine = lines[lines.length - 1];
+  assert.ok(/1 criterion\b/.test(submitLine), 'singular criterion: ' + submitLine);
+  assert.ok(/1 comment\b/.test(submitLine), 'singular comment: ' + submitLine);
+});
+
+test('formatPeerReviewLogLines returns a pause note for peer-review-needs-user', () => {
+  const mod = require('../lib/module-autopilot.js');
+  const lines = mod._formatPeerReviewLogLines({ outcome: 'peer-review-needs-user' });
+  assert.equal(lines.length, 1);
+  assert.ok(/⏸/.test(lines[0]) && /peer review/i.test(lines[0]));
+});
+
+// ---- Phase D (Task 8): end-to-end confirmer-skip + FIFO history ----
+const PEER_HTML =
+  '<div data-testid="lesson-collection">' +
+    '<a href="/learn/x/peer/p1/review">Peer Review One</a>' +
+    '<a href="/learn/x/peer/p2/review">Peer Review Two</a>' +
+    '<a href="/learn/x/supplement/r1/reading">Reading</a>' +
+  '</div>';
+
+function mkPeerHandlers(onCtx) {
+  const base = mkFakeHandlers();
+  base.peerReview = function (ctx) {
+    base.calls.push({ kind: 'peer', id: ctx.item.id, replyHistory: (ctx.replyHistory || []).slice() });
+    if (onCtx) onCtx(ctx);
+    return Promise.resolve({
+      outcome: 'peer-review-submitted',
+      selections: [{ label: 'Clarity', points: 2, lowConfidence: false }],
+      usedComments: ['comment-for-' + ctx.item.id],
+    });
+  };
+  return base;
+}
+
+test('peer-review-submitted advances the cursor WITHOUT invoking the confirmer (no no-completion-indicator pause)', async () => {
+  const j = makePage(PEER_HTML, 'https://www.coursera.org/learn/x/peer/p1/review');
+  const storage = fakeStorage();
+  const d = stateMod.defaults();
+  d.status = 'running';
+  d.courseId = 'x';
+  d.queue = [
+    { id: 'p1', kind: 'peer', url: '/learn/x/peer/p1/review', title: 'Peer Review One' },
+    { id: 'r1', kind: 'reading', url: '/learn/x/supplement/r1/reading', title: 'Reading' },
+  ];
+  await new Promise(function (r) { const it = {}; it[stateMod.RUN_KEY] = d; storage.set(it, r); });
+  const handlers = mkPeerHandlers(null);
+  // A confirmer that would FAIL the wait and force a pause IF the loop called it.
+  let confirmerCalls = 0;
+  const confirmer = { waitForCompletion: function () { confirmerCalls += 1; return Promise.resolve(false); } };
+  const navTargets = [];
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    confirmer: confirmer,
+    nowFn: function () { return 1000000; }, tabKey: 'tab-1', rng: seededRng(1),
+    navigate: function (url) { navTargets.push(url); return Promise.resolve(); },
+    sidebar: { setAutopilotStatus: function () {}, appendAutopilotLog: function () {}, setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; } },
+  });
+  await ap.bootIfRunning();
+  assert.equal(confirmerCalls, 0, 'confirmer must NOT be called for an auto-submitted peer review');
+  const after = await new Promise(function (r) { storage.get([stateMod.RUN_KEY], function (g) { r(g[stateMod.RUN_KEY]); }); });
+  assert.equal(after.cursor, 1, 'cursor must advance past the submitted peer review');
+  assert.notEqual(after.status, 'paused', 'must not pause on no-completion-indicator after a successful submit');
+  assert.equal(navTargets.length, 1, 'should navigate to the next item');
+  assert.ok(navTargets[0].indexOf('/supplement/r1') !== -1);
+});
+
+test('peer-review usedComments are folded into replyHistory and reach the next item ctx', async () => {
+  const j = makePage(PEER_HTML, 'https://www.coursera.org/learn/x/peer/p1/review');
+  const storage = fakeStorage();
+  const d = stateMod.defaults();
+  d.status = 'running';
+  d.courseId = 'x';
+  d.queue = [
+    { id: 'p1', kind: 'peer', url: '/learn/x/peer/p1/review', title: 'Peer Review One' },
+    { id: 'p2', kind: 'peer', url: '/learn/x/peer/p2/review', title: 'Peer Review Two' },
+  ];
+  await new Promise(function (r) { const it = {}; it[stateMod.RUN_KEY] = d; storage.set(it, r); });
+  const handlers = mkPeerHandlers(null);
+  const confirmer = { waitForCompletion: function () { return Promise.resolve(false); } };
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    confirmer: confirmer,
+    nowFn: function () { return 1000000; }, tabKey: 'tab-1', rng: seededRng(1),
+    navigate: function () { return Promise.resolve(); },
+    sidebar: { setAutopilotStatus: function () {}, appendAutopilotLog: function () {}, setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; } },
+  });
+  // First iteration: handles p1, advances cursor to p2.
+  await ap.bootIfRunning();
+  const after1 = await new Promise(function (r) { storage.get([stateMod.RUN_KEY], function (g) { r(g[stateMod.RUN_KEY]); }); });
+  assert.equal(after1.cursor, 1, 'cursor advanced to p2');
+  assert.deepEqual(after1.replyHistory, ['comment-for-p1'], 'p1 usedComments persisted to replyHistory');
+  // Second iteration: re-boot at the advanced cursor; p2 must see p1's comment in ctx.replyHistory.
+  await ap.bootIfRunning();
+  const p2Call = handlers.calls.filter(function (c) { return c.kind === 'peer' && c.id === 'p2'; })[0];
+  assert.ok(p2Call, 'p2 peer handler should have run');
+  assert.ok(p2Call.replyHistory.indexOf('comment-for-p1') !== -1, 'p2 ctx.replyHistory must include p1 comment');
+});
