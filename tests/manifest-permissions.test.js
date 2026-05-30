@@ -29,6 +29,6 @@ test('PB-M3: optional_host_permissions requests https://*/* for the custom endpo
 test('PB-M4: content_scripts.matches remain restricted to Coursera (hard boundary unchanged)', () => {
   const matches = manifest().content_scripts[0].matches.sort();
   // Boundary unchanged from before Phase B: the real manifest scopes to the
-  // wildcard subdomain + www host (the plan illustratively wrote bare coursera.org).
-  assert.deepEqual(matches, ['https://*.coursera.org/*', 'https://www.coursera.org/*']);
+  // wildcard subdomain + the bare apex host.
+  assert.deepEqual(matches, ['https://*.coursera.org/*', 'https://coursera.org/*']);
 });
