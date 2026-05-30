@@ -643,3 +643,38 @@ test('applyStructuredAnswers: free_text and code fill, file_upload is pause-only
   const fu = r.results.find(function (x) { return x.questionNumber === 3; });
   assert.equal(fu.status, 'pause-only');
 });
+
+test('deferText: free_text is deferred to pendingText, not filled; choices still applied', () => {
+  const { applyStructuredAnswers } = require('../lib/answer-applier.js');
+  const doc = dom(
+    makeQuestion(1,
+      '<fieldset>' +
+        '<label><input type="radio" name="q1"> Alpha</label>' +
+        '<label><input type="radio" name="q1"> Beta</label>' +
+      '</fieldset>') +
+    makeQuestion(2, '<textarea id="q2"></textarea>')
+  );
+  const list = [
+    { questionNumber: 1, type: 'single_choice', choiceText: 'Beta' },
+    { questionNumber: 2, type: 'free_text', value: 'My essay answer.' },
+  ];
+  const out = applyStructuredAnswers(list, doc.body, { verbose: false, deferText: true });
+  const checked = doc.querySelectorAll('input[name="q1"]:checked');
+  assert.equal(checked.length, 1);
+  assert.equal(doc.querySelector('#q2').value, '');
+  assert.ok(Array.isArray(out.pendingText));
+  assert.equal(out.pendingText.length, 1);
+  assert.equal(out.pendingText[0].type, 'free_text');
+  assert.equal(out.pendingText[0].value, 'My essay answer.');
+  assert.equal(out.pendingText[0].el, doc.querySelector('#q2'));
+  assert.equal(out.pendingText[0].questionNumber, 2);
+});
+
+test('deferText off (default): free_text is filled directly (back-compat)', () => {
+  const { applyStructuredAnswers } = require('../lib/answer-applier.js');
+  const doc = dom(makeQuestion(1, '<textarea id="q1"></textarea>'));
+  const out = applyStructuredAnswers(
+    [{ questionNumber: 1, type: 'free_text', value: 'hello' }], doc.body, { verbose: false });
+  assert.equal(doc.querySelector('#q1').value, 'hello');
+  assert.ok(!out.pendingText || out.pendingText.length === 0);
+});
