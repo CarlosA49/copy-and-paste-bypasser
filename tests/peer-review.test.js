@@ -176,6 +176,7 @@ test('handler: selects highest option per criterion, fills comment, auto-submits
     signal: mkSignal(),
     behaviorMode: 'fast',
     replyHistory: [],
+    autoSubmitQuizzes: true,
   });
 
   // Highest option in crit1 is "2 points" (3rd radio); crit2 is "3 points" (1st radio).
@@ -233,6 +234,7 @@ test('handler: never clicks the Boost chat Send button (exclusion)', async () =>
   const out = await handler({
     doc: doc, item: { id: 'p1', kind: 'peer' }, rng: seededRng(1),
     signal: mkSignal(), behaviorMode: 'fast', replyHistory: [],
+    autoSubmitQuizzes: true,
   });
   assert.equal(boostClicked, false, 'must never click the Boost Send button');
   assert.equal(realSubmitted, true);
@@ -250,6 +252,7 @@ test('handler (human mode): dwells between criteria/fields and before submit, al
   const out = await handler({
     doc: doc, item: { id: 'p1', kind: 'peer' }, rng: seededRng(5),
     signal: mkSignal(), behaviorMode: 'human', replyHistory: [],
+    autoSubmitQuizzes: true,
   });
   assert.equal(out.outcome, 'peer-review-submitted');
   assert.ok(sleeps.length > 0, 'human mode should dwell');
@@ -278,7 +281,7 @@ test('handler (fast mode): does not dwell', async () => {
   assert.equal(sleeps.length, 0, 'fast mode should not dwell');
 });
 
-test('handler: ignores autoSubmitQuizzes and always auto-submits', async () => {
+test('handler: honors autoSubmitQuizzes ON → auto-submits', async () => {
   const doc = makeFakeDoc(RUBRIC_HTML);
   let submitted = false;
   doc.querySelector('.cds-button-primary').click = function () { submitted = true; };
@@ -286,7 +289,7 @@ test('handler: ignores autoSubmitQuizzes and always auto-submits', async () => {
   const out = await handler({
     doc: doc, item: { id: 'p1', kind: 'peer' }, rng: seededRng(1),
     signal: mkSignal(), behaviorMode: 'fast', replyHistory: [],
-    autoSubmitQuizzes: false, // must be ignored
+    autoSubmitQuizzes: true, // ON → submit
   });
   assert.equal(submitted, true);
   assert.equal(out.outcome, 'peer-review-submitted');
@@ -300,6 +303,7 @@ test('handler: degrades gracefully (scopes to doc.body) when courseraDom is abse
   const out = await handler({
     doc: doc, item: { id: 'p1', kind: 'peer' }, rng: seededRng(1),
     signal: mkSignal(), behaviorMode: 'fast', replyHistory: [],
+    autoSubmitQuizzes: true,
   });
   assert.equal(submitted, true);
   assert.equal(out.outcome, 'peer-review-submitted');
@@ -317,6 +321,7 @@ test('handler: reports low-confidence selections in the outcome', async () => {
   const out = await handler({
     doc: doc, item: { id: 'p1', kind: 'peer' }, rng: seededRng(1),
     signal: mkSignal(), behaviorMode: 'fast', replyHistory: [],
+    autoSubmitQuizzes: true,
   });
   assert.equal(out.outcome, 'peer-review-submitted');
   assert.equal(out.selections.length, 1);
@@ -344,4 +349,60 @@ test('manifest loads peer-review-replies.js then peer-review.js before item-hand
   if (iDom !== -1) {
     assert.ok(iDom < iPeer, 'coursera-dom.js must load before peer-review.js');
   }
+});
+
+test('peer-review: fast mode types comments via the engine at Fast speed', async () => {
+  const pr = require('../lib/peer-review.js');
+  const captured = [];
+  function FakeEngine() {}
+  FakeEngine.prototype.start = function (opts) {
+    captured.push({ speed: opts.speed });
+    const s = String(opts.text || '');
+    const inj = require('../lib/typing-injector.js');
+    for (let i = 0; i < s.length; i++) inj.insertOrBackspace(opts.target, { kind: 'char', char: s[i] });
+    opts.onDone();
+  };
+  FakeEngine.prototype.stop = function () {};
+  const handler = pr.createPeerReviewHandler({
+    sleep: function () { return Promise.resolve(); },
+    timing: require('../lib/autopilot-timing.js'),
+    replies: { pickComment: function () { return 'great work overall'; } },
+    typingEngine: { TypingEngine: FakeEngine },
+    typingInjector: require('../lib/typing-injector.js'),
+    courseraDom: { assessmentRoot: function (d) { return d.body; }, isExcludedNode: function () { return false; } },
+  });
+  const { JSDOM } = require('jsdom');
+  const doc = new JSDOM('<!doctype html><body>' +
+    '<fieldset role="radiogroup"><label><input type="radio" name="c1"> 1 point</label><label><input type="radio" name="c1"> 2 points</label></fieldset>' +
+    '<textarea required></textarea>' +
+    '<button>Submit Review</button>' +
+    '</body>').window.document;
+  doc.querySelector('button').click = function () {};
+  const out = await handler({ doc: doc, rng: (function(){let s=1;return function(){s=(s*1664525+1013904223)>>>0;return s/0x100000000;};})(), signal: { aborted: false, addEventListener: function(){}, removeEventListener: function(){} }, behaviorMode: 'fast', autoSubmitQuizzes: true });
+  assert.equal(out.outcome, 'peer-review-submitted');
+  assert.ok(captured.length >= 1 && captured[0].speed === 'Fast', 'fast peer-review types at Fast speed');
+  assert.equal(doc.querySelector('textarea').value, 'great work overall');
+});
+
+test('peer-review: autoSubmit off → fills but pauses (peer-review-filled-paused, no submit)', async () => {
+  const pr = require('../lib/peer-review.js');
+  const handler = pr.createPeerReviewHandler({
+    sleep: function () { return Promise.resolve(); },
+    timing: require('../lib/autopilot-timing.js'),
+    replies: { pickComment: function () { return 'nice'; } },
+    typingEngine: null, typingInjector: null,
+    courseraDom: { assessmentRoot: function (d) { return d.body; }, isExcludedNode: function () { return false; } },
+  });
+  const { JSDOM } = require('jsdom');
+  const doc = new JSDOM('<!doctype html><body>' +
+    '<fieldset role="radiogroup"><label><input type="radio" name="c1"> 1 point</label><label><input type="radio" name="c1"> 2 points</label></fieldset>' +
+    '<textarea required></textarea>' +
+    '<button>Submit Review</button>' +
+    '</body>').window.document;
+  let submitted = false;
+  doc.querySelector('button').click = function () { submitted = true; };
+  const out = await handler({ doc: doc, rng: (function(){let s=2;return function(){s=(s*1664525+1013904223)>>>0;return s/0x100000000;};})(), signal: { aborted: false, addEventListener: function(){}, removeEventListener: function(){} }, behaviorMode: 'fast', autoSubmitQuizzes: false });
+  assert.equal(out.outcome, 'peer-review-filled-paused');
+  assert.equal(submitted, false);
+  assert.equal(doc.querySelector('textarea').value, 'nice', 'comment still filled');
 });

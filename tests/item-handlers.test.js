@@ -1183,6 +1183,7 @@ test('createHandlers exposes a peerReview handler that fills a rubric and submit
     signal: mkSignal(),
     behaviorMode: 'fast',
     replyHistory: [],
+    autoSubmitQuizzes: true,
   });
   assert.equal(doc.querySelectorAll('input[name="c1"]')[1].checked, true, 'highest option checked');
   assert.ok(doc.querySelector('textarea').value.length > 0, 'comment filled');
