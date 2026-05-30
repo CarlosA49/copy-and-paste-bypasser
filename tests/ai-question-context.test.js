@@ -517,3 +517,16 @@ test('isCurrentPageBlocked ignores blocked-looking text inside a bare .ccp-host 
   const r = ctx.isCurrentPageBlocked(d.location, d);
   assert.equal(r.blocked, false, 'extension .ccp-host content must not block a real lecture');
 });
+
+test('buildQuestionSnapshot: dropdown and free_text are supported and survive sanitize', () => {
+  const j = new JSDOM('<!doctype html><html><body>' +
+    '<div data-testid="cml-question-1"><div>Question 1</div><select><option>x</option><option>y</option></select></div>' +
+    '<div data-testid="cml-question-2"><div>Question 2</div><textarea></textarea></div>' +
+    '</body></html>', { url: 'https://www.coursera.org/learn/x/quiz/q/a' });
+  const doc = j.window.document;
+  const snap = ctx.buildQuestionSnapshot(doc.body, { origin: 'https://www.coursera.org', href: doc.defaultView.location.href }, doc);
+  assert.equal(snap.questions.length, 2);
+  assert.ok(snap.questions.every(function (q) { return q.supported === true; }));
+  const clean = ctx.sanitizeForRequest(snap);
+  assert.equal(clean.questions.length, 2);
+});
