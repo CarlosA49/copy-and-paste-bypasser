@@ -118,3 +118,27 @@ test('detectQuestions skips question-like containers inside the extension sideba
   assert.equal(qs.length, 1);
   assert.ok(qs[0].container.closest('#ccp-host-root') === null);
 });
+
+test('detectQuestions excludes a DISTINCT-numbered sidebar question that dedup cannot mask (load-bearing guard)', () => {
+  // Distinct numbers so dedup-by-question-number cannot hide the sidebar entry.
+  // Without the courseraDom exclusion guard, the sidebar's "Question 2" container
+  // (header-only once answer-matcher excludes its ccp-behavior radio) is emitted
+  // as a type:'unknown' question (classify() emits header-only containers). The
+  // collectContainers guard must keep it out of the result entirely.
+  const d = dom(
+    '<div id="ccp-host-root"><div class="ccp-host">' +
+      '<div data-testid="cml-question-9"><h3>Question 2</h3>' +
+        '<fieldset><input type="radio" name="ccp-behavior"></fieldset></div>' +
+    '</div></div>' +
+    '<main>' +
+      '<div data-testid="cml-question-1"><h3>Question 1</h3>' +
+        '<fieldset><input type="radio" name="real-q"><input type="radio" name="real-q"></fieldset></div>' +
+    '</main>'
+  );
+  const qs = detectQuestions(d.body);
+  assert.equal(qs.length, 1, 'only the real main question survives the guard');
+  assert.equal(qs[0].questionNumber, 1);
+  assert.equal(qs[0].type, 'single_choice');
+  assert.ok(qs.every(function (q) { return q.container.closest('#ccp-host-root') === null; }),
+    'no detected question may live inside the extension sidebar');
+});
