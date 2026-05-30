@@ -372,3 +372,26 @@ test('GROUND TRUTH (extraction): contamination nodes are excluded while real out
   assert.equal(links.length, 1);
   assert.equal(links[0].getAttribute('href'), '/learn/matlab/lecture/cp1/course-preview');
 });
+
+const fs = require('node:fs');
+const path = require('node:path');
+
+test('manifest loads coursera-dom.js before its content-script consumers', () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'manifest.json'), 'utf8'));
+  const js = manifest.content_scripts[0].js;
+  const idx = function (name) { return js.indexOf(name); };
+  assert.ok(idx('lib/coursera-dom.js') !== -1, 'coursera-dom.js must be in the content-script js list');
+  const consumers = [
+    'lib/answer-matcher.js',
+    'lib/module-scraper.js',
+    'lib/page-fallback.js',
+    'lib/completion-confirmer.js',
+    'lib/module-autopilot.js',
+    'lib/question-detector.js',
+    'lib/ai-question-context.js',
+  ];
+  consumers.forEach(function (c) {
+    assert.ok(idx(c) !== -1, c + ' must be present');
+    assert.ok(idx('lib/coursera-dom.js') < idx(c), 'coursera-dom.js must load before ' + c);
+  });
+});
