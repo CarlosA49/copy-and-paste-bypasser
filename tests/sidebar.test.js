@@ -1146,4 +1146,24 @@ test('answering-for-you: bare-line paste fallback fills via applyAnswers when le
     'must not show the legacy "no candidates" error; got: ' + JSON.stringify(status.textContent));
 });
 
+test('sidebar: aiAnswerAssessments toggle is key-gated, syncs, and emits', () => {
+  const { sidebar, shadow, dom } = freshSidebar('https://www.coursera.org/learn/x/quiz/q/a');
+  let emitted = null;
+  sidebar.setAutopilotHandlers({ onSettingsChange: function (s) { emitted = s; } });
+  const cb = shadow.querySelector('[data-role="autopilot-ai-answer"]');
+  assert.ok(cb, 'toggle must exist in markup');
+  // Disabled until a key is configured.
+  sidebar.setAiKeyStatus({ keyPresent: false });
+  assert.equal(cb.disabled, true, 'toggle disabled without a key');
+  sidebar.setAiKeyStatus({ keyPresent: true });
+  assert.equal(cb.disabled, false, 'toggle enabled with a key');
+  // Sync from settings.
+  sidebar.setAutopilotSettings({ aiAnswerAssessments: true });
+  assert.equal(cb.checked, true);
+  // Emit on change.
+  cb.checked = false;
+  cb.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  assert.ok(emitted && emitted.aiAnswerAssessments === false, 'emitSettings includes aiAnswerAssessments');
+});
+
 module.exports = { freshSidebar, SIDEBAR_PATH };
