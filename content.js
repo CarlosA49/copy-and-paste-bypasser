@@ -93,6 +93,21 @@
       try { debugRecorder = a.autopilotDebug.createDebugRecorder({ maxEvents: 500 }); } catch (_) { debugRecorder = null; }
     }
     const confirmer = a.completionConfirmer.createConfirmer({ debugRecorder: debugRecorder });
+    // AI-assessment bridge: wrap the background ccp.ai.request 'generateAnswers'
+    // command (the same un-gated messenger the manual AI path uses) as an
+    // aiGenerate(snapshot) -> Promise<{ok, raw}> for the assessmentAi handler.
+    function aiRequestSend(command, params, cb) {
+      try {
+        chrome.runtime.sendMessage({ type: 'ccp.ai.request', command: command, params: params || {} }, function (res) { cb(res || { ok: false, reason: 'no-response' }); });
+      } catch (e) { cb({ ok: false, reason: 'send-failed' }); }
+    }
+    const aiGenerate = function (snapshot) {
+      return new Promise(function (resolve) {
+        aiRequestSend('generateAnswers', { snapshot: snapshot }, function (res) {
+          resolve(res && res.ok ? { ok: true, raw: res.raw } : { ok: false, reason: (res && res.reason) || 'no-response' });
+        });
+      });
+    };
     const handlers = a.itemHandlers.createHandlers({
       debugRecorder: debugRecorder,
       sleep: function (ms, signal) {
@@ -124,6 +139,10 @@
       typingInjector: a.typingInjector,
       answerApplier: a.answerApplier || null,
       pageFallback: a.pageFallback || null,
+      questionContext: a.aiQuestionContext || null,
+      validator: a.aiAnswerValidator || null,
+      permissive: a.aiAnswerPermissive || null,
+      courseraDom: a.courseraDom || null,
     });
     // Expose the generic Mark-complete fallback on handlers so the controller
     // can invoke it without re-resolving the module.
@@ -168,11 +187,12 @@
       sidebar: a.sidebar,
       confirmer: confirmer,
       debugRecorder: debugRecorder,
+      aiGenerate: aiGenerate,
     });
     if (debugRecorder && a.sidebar && typeof a.sidebar.setDebugRecorder === 'function') {
       try { a.sidebar.setDebugRecorder(debugRecorder); } catch (_) {}
     }
-    let _latestSettings = { pauseOnUserInput: false, autoSubmitQuizzes: false, behaviorMode: 'fast', runScope: 'module' };
+    let _latestSettings = { pauseOnUserInput: false, autoSubmitQuizzes: false, aiAnswerAssessments: false, behaviorMode: 'fast', runScope: 'module' };
     // Initialize from storage once. The state module also runs a one-shot
     // settings migration here (legacy pauseOnUserInput=true → false) and
     // persists the result, so the in-memory `_latestSettings` and the sidebar
