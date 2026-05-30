@@ -322,3 +322,26 @@ test('handler: reports low-confidence selections in the outcome', async () => {
   assert.equal(out.selections.length, 1);
   assert.equal(out.selections[0].lowConfidence, true);
 });
+
+// ---- Phase D: manifest load-order guard ----
+const fs = require('node:fs');
+const path = require('node:path');
+
+test('manifest loads peer-review-replies.js then peer-review.js before item-handlers.js', () => {
+  const manifestPath = path.join(__dirname, '..', 'manifest.json');
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+  const js = manifest.content_scripts[0].js;
+  const iReplies = js.indexOf('lib/peer-review-replies.js');
+  const iPeer = js.indexOf('lib/peer-review.js');
+  const iHandlers = js.indexOf('lib/item-handlers.js');
+  assert.ok(iReplies !== -1, 'peer-review-replies.js must be listed');
+  assert.ok(iPeer !== -1, 'peer-review.js must be listed');
+  assert.ok(iHandlers !== -1, 'item-handlers.js must be listed');
+  assert.ok(iReplies < iPeer, 'peer-review-replies.js must load before peer-review.js');
+  assert.ok(iPeer < iHandlers, 'peer-review.js must load before item-handlers.js');
+  // If Phase A has shipped coursera-dom.js, peer-review.js must load after it.
+  const iDom = js.indexOf('lib/coursera-dom.js');
+  if (iDom !== -1) {
+    assert.ok(iDom < iPeer, 'coursera-dom.js must load before peer-review.js');
+  }
+});
