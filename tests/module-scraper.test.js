@@ -1041,3 +1041,81 @@ test('scrapeModule no longer drops the ungradedWidget row (GROUND TRUTH from ext
   const ids = r.items.map(function (it) { return it.id; });
   assert.ok(ids.indexOf('8h1hv') !== -1, 'ungradedWidget item must appear in the queue');
 });
+
+// ─── Task 14: completion via courseraDom.itemStatus + findModuleRegions ───
+
+test('scrapeModule keeps a Graded App Item (gradedLti) row in the queue (GROUND TRUTH)', () => {
+  const d = dom(
+    '<div data-testid="lesson-collection">' +
+      '<a href="/learn/matlab/gradedLti/g1/assignment-matlab-calculation" aria-label="Graded App Item, Assignment: MATLAB Calculation, Not submitted, 15 min">Assignment: MATLAB Calculation</a>' +
+    '</div>',
+    'https://www.coursera.org/learn/matlab/lecture/v1/intro'
+  );
+  const r = scrapeModule(d);
+  const ids = r.items.map(function (it) { return it.id; });
+  assert.ok(ids.indexOf('g1') !== -1, 'gradedLti row must stay in the queue');
+});
+
+test('scrapeModule reads completion from the accessibleName status token (preferred over green-RGB)', () => {
+  const d = dom(
+    '<div data-testid="lesson-collection">' +
+      '<a href="/learn/matlab/lecture/v1/intro" aria-label="Video, Intro, Completed, 2 min">Intro</a>' +
+    '</div>',
+    'https://www.coursera.org/learn/matlab/lecture/v1/intro'
+  );
+  const r = scrapeModule(d);
+  const it = r.items.filter(function (x) { return x.id === 'v1'; })[0];
+  assert.ok(it, 'row must be in the queue');
+  assert.equal(it.completed, true);
+});
+
+test('scrapeModule reads not-completion from the accessibleName status token even with green-ish styling (status wins)', () => {
+  const d = dom(
+    '<div data-testid="lesson-collection">' +
+      '<a href="/learn/matlab/lecture/v2/scripts" aria-label="Video, Scripts, Not submitted, 4 min">' +
+        '<span style="color: rgb(0, 160, 0)">point</span>Scripts' +
+      '</a>' +
+    '</div>',
+    'https://www.coursera.org/learn/matlab/lecture/v1/intro'
+  );
+  const r = scrapeModule(d);
+  const it = r.items.filter(function (x) { return x.id === 'v2'; })[0];
+  assert.ok(it, 'row must be in the queue');
+  assert.equal(it.completed, false);
+});
+
+test('scrapeModule still falls back to the green-RGB icon when the accessibleName has no status token (last resort)', () => {
+  const d = dom(
+    '<div data-testid="lesson-collection">' +
+      '<a href="/learn/matlab/lecture/v3/recap" aria-label="Course Preview">' +
+        '<svg style="color: rgb(0, 150, 0)"><path></path></svg>Recap' +
+      '</a>' +
+    '</div>',
+    'https://www.coursera.org/learn/matlab/lecture/v1/intro'
+  );
+  const r = scrapeModule(d);
+  const it = r.items.filter(function (x) { return x.id === 'v3'; })[0];
+  assert.ok(it, 'row must be in the queue');
+  assert.equal(it.completed, true);
+});
+
+test('module-scraper exposes findModuleRegions delegating to courseraDom (role=region module discovery)', () => {
+  const scraper = require('../lib/module-scraper.js');
+  assert.equal(typeof scraper.findModuleRegions, 'function');
+  const d = dom(
+    '<nav role="navigation">' +
+      '<div role="region" aria-label="Module 1 Course Pages">' +
+        '<div role="heading" aria-level="3"><button aria-expanded="true">Module 1 Course Pages</button></div>' +
+        '<ul><li><div><a href="/learn/matlab/lecture/cp1/course-preview">Course Preview</a></div></li></ul>' +
+      '</div>' +
+      '<div role="region" aria-label="Module 2 The MATLAB Environment">' +
+        '<div role="heading" aria-level="3"><button aria-expanded="false">Module 2 The MATLAB Environment</button></div>' +
+      '</div>' +
+    '</nav>'
+  );
+  const regions = scraper.findModuleRegions(d);
+  assert.equal(regions.length, 2);
+  assert.equal(regions[0].title, 'Module 1 Course Pages');
+  assert.equal(regions[0].expanded, true);
+  assert.equal(regions[1].expanded, false);
+});
