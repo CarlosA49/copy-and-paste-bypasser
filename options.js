@@ -37,6 +37,21 @@
     storage: storage,
     chromeRuntime: (typeof chrome !== 'undefined' && chrome.runtime) ? chrome.runtime : null,
     openPortalFn: function () { /* Stage 2: no portal exists; button is disabled. */ },
+    providerList: (typeof window !== 'undefined' && window.ClipboardCleaner && window.ClipboardCleaner.aiProviders)
+      ? window.ClipboardCleaner.aiProviders.list()
+      : [
+          // DEFENSIVE BACKSTOP only — production uses the registry above (loaded via
+          // <script src="lib/ai-providers.js"> in options.html). The D-DRIFT test pins
+          // these ids to aiProviders.list() so this can never drift from the adapters.
+          { id: 'openai', label: 'OpenAI', models: ['gpt-4o-mini', 'gpt-4o', 'gpt-4.1-mini'], defaultModel: 'gpt-4o-mini' },
+          { id: 'anthropic', label: 'Anthropic', models: ['claude-3-5-haiku-latest', 'claude-3-5-sonnet-latest'], defaultModel: 'claude-3-5-haiku-latest' },
+          { id: 'gemini', label: 'Google Gemini', models: ['gemini-1.5-flash', 'gemini-1.5-pro'], defaultModel: 'gemini-1.5-flash' },
+          { id: 'deepseek', label: 'DeepSeek', models: ['deepseek-chat', 'deepseek-reasoner'], defaultModel: 'deepseek-chat' },
+          { id: 'custom', label: 'Custom (OpenAI-compatible)', models: [], defaultModel: 'gpt-4o-mini' },
+        ],
+    permissions: (typeof chrome !== 'undefined' && chrome.permissions && typeof chrome.permissions.request === 'function')
+      ? { request: function (req, cb) { chrome.permissions.request(req, cb); } }
+      : null,
   });
   ctrl.wire();
 })();
