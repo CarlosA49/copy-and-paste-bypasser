@@ -297,3 +297,25 @@ test('waitForCompletion still times out when no evidence at all is present', asy
   });
   assert.equal(done, false);
 });
+
+test('confirmer: graded-results banner confirms a quiz (quiz/exam only)', async () => {
+  const { createConfirmer } = require('../lib/completion-confirmer.js');
+  const { JSDOM } = require('jsdom');
+  const doc = new JSDOM('<!doctype html><body><h2>Grade received</h2></body>').window.document;
+  const scraper = { findItemCompletionIndicator: function () { return false; }, findGreenCompletionIconInRow: function () { return null; } };
+  const pageFallback = require('../lib/page-fallback.js');
+  const c = createConfirmer({ sleep: function () { return Promise.resolve(); }, nowFn: (function () { let t = 0; return function () { return (t += 1000); }; })() });
+  const ok = await c.waitForCompletion({ doc: doc, itemId: 'q1', itemKind: 'quiz', scraper: scraper, pageFallback: pageFallback, timeoutMs: 5000 });
+  assert.equal(ok, true);
+});
+
+test('confirmer: graded-results banner does NOT confirm a non-assessment kind', async () => {
+  const { createConfirmer } = require('../lib/completion-confirmer.js');
+  const { JSDOM } = require('jsdom');
+  const doc = new JSDOM('<!doctype html><body><h2>Grade received</h2></body>').window.document;
+  const scraper = { findItemCompletionIndicator: function () { return false; }, findGreenCompletionIconInRow: function () { return null; } };
+  const pageFallback = require('../lib/page-fallback.js');
+  const c = createConfirmer({ sleep: function () { return Promise.resolve(); }, nowFn: (function () { let t = 0; return function () { return (t += 2500); }; })() });
+  const ok = await c.waitForCompletion({ doc: doc, itemId: 'r1', itemKind: 'reading', scraper: scraper, pageFallback: pageFallback, timeoutMs: 5000 });
+  assert.equal(ok, false);
+});

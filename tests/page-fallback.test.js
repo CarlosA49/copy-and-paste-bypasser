@@ -141,3 +141,12 @@ test('findGoToNextItemButton still matches the legacy whole-string "Continue" wh
   assert.ok(btn);
   assert.equal(btn.textContent, 'Continue');
 });
+
+test('findGradedResultsIndicator: matches a graded/submitted banner, ignores plain text', () => {
+  const pf = require('../lib/page-fallback.js');
+  const { JSDOM } = require('jsdom');
+  const yes = new JSDOM('<!doctype html><body><h2>Grade received</h2></body>').window.document;
+  assert.ok(pf.findGradedResultsIndicator(yes));
+  const no = new JSDOM('<!doctype html><body><p>Please grade your work carefully.</p></body>').window.document;
+  assert.equal(pf.findGradedResultsIndicator(no), null);
+});
