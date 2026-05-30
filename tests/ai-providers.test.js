@@ -39,3 +39,44 @@ test('list returns the five known providers with id/label/models/defaultModel', 
 test('get returns null for an unknown provider id', () => {
   assert.equal(aiProviders.get('nope'), null);
 });
+
+test('openai buildRequest posts JSON to the chat completions URL with the key only in the Authorization header', () => {
+  const a = aiProviders.get('openai');
+  const req = a.buildRequest(SNAP, 'sk-SUPER-SECRET', { model: 'gpt-4o-mini' });
+  assert.equal(req.url, 'https://api.openai.com/v1/chat/completions');
+  assert.equal(req.method, 'POST');
+  assert.equal(req.headers.Authorization, 'Bearer sk-SUPER-SECRET');
+  assert.equal(req.headers['Content-Type'], 'application/json');
+  const body = JSON.parse(req.body);
+  assert.equal(body.model, 'gpt-4o-mini');
+  assert.equal(body.response_format.type, 'json_object');
+  const userMsg = body.messages.find(function (m) { return m.role === 'user'; });
+  assert.ok(userMsg.content.indexOf('"q1"') !== -1, 'snapshot must be in the user prompt');
+  assert.equal(req.body.indexOf('sk-SUPER-SECRET'), -1);
+});
+
+test('openai parseResponse reads choices[0].message.content and JSON.parses it into raw.answers', () => {
+  const a = aiProviders.get('openai');
+  const r = a.parseResponse({ choices: [{ message: { content: JSON.stringify({ answers: [{ question_id: 'q1' }] }) } }] });
+  assert.equal(r.ok, true);
+  assert.ok(Array.isArray(r.raw.answers));
+  assert.equal(r.raw.answers[0].question_id, 'q1');
+});
+
+test('openai parseResponse returns {ok:true, raw:{_raw}} for non-JSON content', () => {
+  const a = aiProviders.get('openai');
+  const r = a.parseResponse({ choices: [{ message: { content: 'not json at all' } }] });
+  assert.equal(r.ok, true);
+  assert.equal(r.raw._raw, 'not json at all');
+});
+
+test('openai createClient end-to-end 200 normalizes and never leaks the key', async () => {
+  const f = makeFetch(function () { return makeResponse(200, { choices: [{ message: { content: '{"answers":[{"question_id":"q1"}]}' } }] }); });
+  const c = aiProviders.get('openai').createClient({ fetchFn: f });
+  const r = await c.generateAnswers(SNAP, 'sk-SUPER-SECRET');
+  assert.equal(r.ok, true);
+  assert.equal(r.raw.answers[0].question_id, 'q1');
+  assert.equal(JSON.stringify(r).indexOf('sk-SUPER-SECRET'), -1);
+  assert.equal(String(f.calls[0].init.body || '').indexOf('sk-SUPER-SECRET'), -1);
+  assert.equal(f.calls[0].init.headers.Authorization, 'Bearer sk-SUPER-SECRET');
+});
