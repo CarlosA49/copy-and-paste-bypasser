@@ -599,3 +599,17 @@ test('E2E: option-enumeration line is refused, single-letter picks still work', 
   assert.equal(q1Result.status, 'failed');
   assert.equal(q1Result.reason, 'option-enumeration');
 });
+
+test('applyAnswers: plain-text answer into a non-numeric text input is not math-normalized', () => {
+  const j = new JSDOM(
+    '<!doctype html><html><body>' +
+    '<div data-testid="cml-question-1"><div>Question 1</div>' +
+    '<input type="text" name="q1" /></div>' +
+    '</body></html>', { url: 'https://www.coursera.org/learn/x/quiz/q1/a' });
+  const doc = j.window.document;
+  // "one" has no digits, so it must NOT go through math-normalization, which would
+  // mangle it to "on*e" (implicit-multiplication insertion). It must land verbatim.
+  const summary = applyAnswers('1. one', doc.body, { verbose: false });
+  const input = doc.querySelector('input[name="q1"]');
+  assert.equal(input.value, 'one', 'plain word must be filled verbatim, not normalized');
+});
