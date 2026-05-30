@@ -7153,3 +7153,18 @@ test('buildOrderedQueue: quiz still requires the AI toggle (autoSubmit alone doe
   const q = auto.queue.find(function (it) { return it.id === 'q1'; });
   assert.ok(q && q.blocked === true, 'quiz stays blocked without the AI toggle');
 });
+
+test('new assessment outcomes are classified correctly', () => {
+  const mod = require('../lib/module-autopilot.js');
+  assert.equal(mod._isFailureOutcome({ outcome: 'assessment-ai-submitted' }), false);
+  assert.equal(mod._isFailureOutcome({ outcome: 'assessment-ai-needs-key' }), true);
+  assert.equal(mod._isFailureOutcome({ outcome: 'assessment-ai-no-submit-button' }), true);
+  assert.equal(mod._isFailureOutcome({ outcome: 'peer-review-filled-paused' }), true);
+});
+
+test('reason text for the new pause outcomes is actionable + mentions auto-resume where applicable', () => {
+  const mod = require('../lib/module-autopilot.js');
+  assert.ok(/api key/i.test(mod._reasonText({ outcome: 'assessment-ai-needs-key' })));
+  assert.ok(/submit/i.test(mod._reasonText({ outcome: 'assessment-ai-no-submit-button' })));
+  assert.ok(/review/i.test(mod._reasonText({ outcome: 'peer-review-filled-paused' })));
+});
