@@ -7,6 +7,9 @@ const {
   classifyKind,
   parseItemAccessibleName,
   itemStatus,
+  isExcludedNode,
+  assessmentRoot,
+  withinAssessment,
 } = require('../lib/coursera-dom.js');
 
 function dom(html, url) {
@@ -123,4 +126,68 @@ test('itemStatus reads an element accessible-name (aria-label) when given a node
   const d = dom('<a aria-label="Video, Introduction, Completed, 12 min" href="/learn/matlab/lecture/v1/intro">Intro</a>');
   const a = d.querySelector('a');
   assert.equal(itemStatus(a), 'completed');
+});
+
+test('isExcludedNode excludes the extension sidebar host (#ccp-host-root) and its subtree', () => {
+  const d = dom(
+    '<div id="ccp-host-root"><div class="ccp-host">' +
+      '<input name="ccp-behavior" type="radio">' +
+      '<textarea placeholder="Paste or type text...">x</textarea>' +
+    '</div></div>' +
+    '<main><input type="radio" name="q1"></main>'
+  );
+  assert.equal(isExcludedNode(d.getElementById('ccp-host-root')), true);
+  assert.equal(isExcludedNode(d.querySelector('input[name="ccp-behavior"]')), true);
+  assert.equal(isExcludedNode(d.querySelector('textarea')), true);
+  assert.equal(isExcludedNode(d.querySelector('main input[name="q1"]')), false);
+});
+
+test('isExcludedNode excludes a .ccp-host subtree even without the #ccp-host-root id (inlined shadow content)', () => {
+  const d = dom('<div class="ccp-host"><button>Autopilot</button></div><main><button>Submit</button></main>');
+  assert.equal(isExcludedNode(d.querySelector('.ccp-host button')), true);
+  assert.equal(isExcludedNode(d.querySelector('main button')), false);
+});
+
+test('isExcludedNode excludes the Boost support chat composer and panel', () => {
+  const d = dom(
+    '<div id="boostai-chat-panel-composer">' +
+      '<textarea placeholder="Ask your question here"></textarea>' +
+      '<button>Send</button>' +
+    '</div>' +
+    '<div class="Boost-ChatPanel-foo"><button>X</button></div>' +
+    '<button data-testid="coach-chat-launcher-button">Chat</button>' +
+    '<main><button>Submit</button></main>'
+  );
+  assert.equal(isExcludedNode(d.querySelector('#boostai-chat-panel-composer textarea')), true);
+  assert.equal(isExcludedNode(d.querySelector('#boostai-chat-panel-composer button')), true);
+  assert.equal(isExcludedNode(d.querySelector('.Boost-ChatPanel-foo button')), true);
+  assert.equal(isExcludedNode(d.querySelector('[data-testid="coach-chat-launcher-button"]')), true);
+  assert.equal(isExcludedNode(d.querySelector('main button')), false);
+});
+
+test('isExcludedNode is safe on null and non-element input', () => {
+  assert.equal(isExcludedNode(null), false);
+  assert.equal(isExcludedNode(undefined), false);
+});
+
+test('assessmentRoot returns main when present and excludes nav/aside/extension/chat', () => {
+  const d = dom(
+    '<nav><a href="/learn/x/quiz/q1">Quiz</a></nav>' +
+    '<div id="ccp-host-root"><input name="ccp-behavior" type="radio"></div>' +
+    '<main id="real"><fieldset><input type="radio" name="q1"></fieldset></main>'
+  );
+  const r = assessmentRoot(d);
+  assert.ok(r);
+  assert.equal(r.id, 'real');
+});
+
+test('withinAssessment is true for a node inside the assessment root and false for excluded/nav nodes', () => {
+  const d = dom(
+    '<nav><button id="nav-btn">Nav</button></nav>' +
+    '<div class="ccp-host"><button id="ext-btn">Ext</button></div>' +
+    '<main><button id="ok-btn">Submit</button></main>'
+  );
+  assert.equal(withinAssessment(d.getElementById('ok-btn')), true);
+  assert.equal(withinAssessment(d.getElementById('ext-btn')), false);
+  assert.equal(withinAssessment(d.getElementById('nav-btn')), false);
 });
