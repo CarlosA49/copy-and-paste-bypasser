@@ -8,6 +8,7 @@
 importScripts(
   'lib/autopilot-state.js',
   'lib/autopilot-authority.js',
+  'lib/ai-providers.js',
   'lib/deepseek-client.js',
   'lib/ai-background-service.js',
   'lib/managed-client.js',
@@ -123,9 +124,11 @@ importScripts(
     });
   }
 
+  const providersMod = self.ClipboardCleaner && self.ClipboardCleaner.aiProviders;
   const svc = aiMod.createAiBackgroundService({
     storageSession: storageSession,
     storageLocal: storageLocal,
+    aiProviders: providersMod || null,
     clientFactory: function () { return deepseekMod.createClient({}); },
     managedClient: managedMod ? managedMod.createManagedClient({ backendBaseUrl: null }) : null,
     accessModeProvider: readAccessModeFromStorage,
