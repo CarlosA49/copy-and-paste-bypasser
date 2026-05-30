@@ -461,3 +461,59 @@ test('U12-C5: REGRESSION — buildQuestionSnapshot on an eligible lecture URL st
   assert.equal(snap.supportedCount, 1);
   assert.equal(snap.actionableCount, 1);
 });
+
+// ─── Task 10: courseraDom.isExcludedNode subsumes the ad-hoc exclusion walk ───
+
+function dom(html, url) {
+  return new JSDOM(
+    '<!doctype html><html><body>' + html + '</body></html>',
+    { url: url || 'https://www.coursera.org/learn/x/quiz/q1/attempt' }
+  ).window.document;
+}
+
+test('findCurrentActivityEvidenceRoot never returns a node inside the extension sidebar even without ASIDE/NAV wrappers', () => {
+  const { findCurrentActivityEvidenceRoot } = require('../lib/ai-question-context.js');
+  // Sidebar uses .ccp-host (no aside/nav, no recognized class keyword) — the old
+  // ad-hoc walk relied on ASIDE/NAV/role/class keywords and would miss it.
+  const d = dom(
+    '<div class="ccp-host">' +
+      '<div data-testid="cml-question-1"><h3>Question 1</h3>' +
+        '<fieldset><input type="radio" name="ccp-behavior"></fieldset></div>' +
+    '</div>' +
+    '<main>' +
+      '<div data-testid="cml-question-2"><h3>Question 1</h3>' +
+        '<fieldset><input type="radio" name="real-q"><input type="radio" name="real-q"></fieldset></div>' +
+    '</main>'
+  );
+  const rootEl = findCurrentActivityEvidenceRoot(d, { href: 'https://www.coursera.org/learn/x/quiz/q1/attempt' });
+  assert.ok(rootEl);
+  assert.equal(rootEl.closest('.ccp-host'), null, 'evidence root must not be inside .ccp-host');
+});
+
+test('findCurrentActivityEvidenceRoot skips a <main> nested inside .ccp-host and picks the real main', () => {
+  // Priority-2 (main scan) path: a decoy <main> lives inside the extension host.
+  // Only courseraDom.isExcludedNode recognizes the bare .ccp-host wrapper, so the
+  // old keyword walk returns the fake main; the new walk must skip to the real one.
+  const { findCurrentActivityEvidenceRoot } = require('../lib/ai-question-context.js');
+  const d = dom(
+    '<div class="ccp-host"><main id="fake"><h1>Extension UI</h1></main></div>' +
+    '<main id="real"><h1>Welcome to the lesson</h1></main>'
+  );
+  const rootEl = findCurrentActivityEvidenceRoot(d, { href: 'https://www.coursera.org/learn/x/lecture/v1/intro' });
+  assert.ok(rootEl);
+  assert.equal(rootEl.id, 'real');
+});
+
+test('isCurrentPageBlocked ignores blocked-looking text inside a bare .ccp-host subtree nested in main', () => {
+  // _visibleBlockedReason scan path: the extension renders "Graded Assignment"
+  // inside its own .ccp-host inside main. The bare-class host must be excluded so
+  // it cannot trigger a false-positive block of a real lecture.
+  const d = dom(
+    '<main><h1>Welcome to the lesson</h1>' +
+      '<div class="ccp-host"><h2>Graded Assignment</h2></div>' +
+    '</main>',
+    'https://www.coursera.org/learn/x/lecture/v1/intro'
+  );
+  const r = ctx.isCurrentPageBlocked(d.location, d);
+  assert.equal(r.blocked, false, 'extension .ccp-host content must not block a real lecture');
+});
