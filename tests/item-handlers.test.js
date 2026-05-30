@@ -1189,3 +1189,115 @@ test('createHandlers exposes a peerReview handler that fills a rubric and submit
   assert.equal(submitted, true, 'auto-submitted');
   assert.equal(out.outcome, 'peer-review-submitted');
 });
+
+// ---- Task 4: assessmentAi auto-submit + free_text typing + needs-key + retry ----
+
+function fakeTypingEngineModule(captured) {
+  function FakeEngine() {}
+  FakeEngine.prototype.start = function (opts) {
+    captured.push({ text: opts.text, speed: opts.speed, profile: opts.profile });
+    const s = String(opts.text || '');
+    for (let i = 0; i < s.length; i++) opts.onTick({ kind: 'char', char: s[i] });
+    opts.onDone();
+  };
+  FakeEngine.prototype.stop = function () {};
+  return { TypingEngine: FakeEngine };
+}
+
+function aiAssessmentDeps(captured) {
+  return {
+    sleep: function () { return Promise.resolve(); },
+    timing: require('../lib/autopilot-timing.js'),
+    answerApplier: require('../lib/answer-applier.js'),
+    questionContext: require('../lib/ai-question-context.js'),
+    validator: require('../lib/ai-answer-validator.js'),
+    permissive: require('../lib/ai-answer-permissive.js'),
+    courseraDom: { isExternalLaunchPage: function () { return false; }, assessmentRoot: function (d) { return d.body; }, isExcludedNode: function () { return false; } },
+    typingEngine: fakeTypingEngineModule(captured),
+    typingInjector: require('../lib/typing-injector.js'),
+  };
+}
+
+test('assessmentAi: autoSubmit on + free_text typed via engine (Fast in fast mode) + submit clicked', async () => {
+  const doc = makeFakeDoc(
+    '<div data-testid="cml-question-1"><div>Question 1</div><textarea id="a1"></textarea></div>' +
+    '<button type="submit">Submit</button>',
+    'https://www.coursera.org/learn/x/quiz/q1/a');
+  const captured = [];
+  const handlers = createHandlers(aiAssessmentDeps(captured));
+  let submitted = false;
+  doc.querySelector('button[type="submit"]').click = function () { submitted = true; };
+  const aiGenerate = function () {
+    return Promise.resolve({ ok: true, raw: JSON.stringify({ token: 'ignored', answers: [{ id: 'q1', type: 'free_text', value: 'typed essay' }] }) });
+  };
+  const out = await handlers.assessmentAi({
+    doc: doc, item: { id: 'q1', kind: 'quiz' }, rng: seededRng(1), signal: mkSignal(),
+    behaviorMode: 'fast', autoSubmitQuizzes: true, aiGenerate: aiGenerate,
+    location: { origin: 'https://www.coursera.org', href: 'https://www.coursera.org/learn/x/quiz/q1/a' },
+  });
+  assert.equal(doc.querySelector('#a1').value, 'typed essay', 'free_text typed into the box');
+  assert.ok(captured.length >= 1 && captured[0].speed === 'Fast', 'fast mode uses Fast speed');
+  assert.equal(out.outcome, 'assessment-ai-submitted');
+  assert.equal(submitted, true);
+});
+
+test('assessmentAi: human mode types free_text at Normal speed', async () => {
+  const doc = makeFakeDoc(
+    '<div data-testid="cml-question-1"><div>Question 1</div><textarea id="a1"></textarea></div>' +
+    '<button type="submit">Submit</button>',
+    'https://www.coursera.org/learn/x/quiz/q1/a');
+  const captured = [];
+  const handlers = createHandlers(aiAssessmentDeps(captured));
+  doc.querySelector('button[type="submit"]').click = function () {};
+  const aiGenerate = function () { return Promise.resolve({ ok: true, raw: JSON.stringify({ answers: [{ id: 'q1', type: 'free_text', value: 'hi' }] }) }); };
+  await handlers.assessmentAi({
+    doc: doc, item: { id: 'q1', kind: 'quiz' }, rng: seededRng(1), signal: mkSignal(),
+    behaviorMode: 'human', autoSubmitQuizzes: false, aiGenerate: aiGenerate,
+    location: { origin: 'https://www.coursera.org', href: 'https://www.coursera.org/learn/x/quiz/q1/a' },
+  });
+  assert.ok(captured.length >= 1 && captured[0].speed === 'Normal', 'human mode uses Normal speed');
+});
+
+test('assessmentAi: autoSubmit off pauses for review (no submit)', async () => {
+  const doc = makeFakeDoc(
+    '<div data-testid="cml-question-1"><div>Question 1</div><fieldset>' +
+      '<label><input type="radio" name="q1"> Alpha</label>' +
+      '<label><input type="radio" name="q1"> Beta</label></fieldset></div>' +
+    '<button type="submit">Submit</button>',
+    'https://www.coursera.org/learn/x/quiz/q1/a');
+  const handlers = createHandlers(aiAssessmentDeps([]));
+  let submitted = false;
+  doc.querySelector('button[type="submit"]').click = function () { submitted = true; };
+  const aiGenerate = function () { return Promise.resolve({ ok: true, raw: JSON.stringify({ answers: [{ id: 'q1', type: 'single_choice', option_id: 'q1o1' }] }) }); };
+  const out = await handlers.assessmentAi({
+    doc: doc, item: { id: 'q1', kind: 'quiz' }, rng: seededRng(1), signal: mkSignal(),
+    behaviorMode: 'fast', autoSubmitQuizzes: false, aiGenerate: aiGenerate,
+    location: { origin: 'https://www.coursera.org', href: 'https://www.coursera.org/learn/x/quiz/q1/a' },
+  });
+  assert.equal(out.outcome, 'assessment-ai-answered-paused');
+  assert.equal(submitted, false);
+});
+
+test('assessmentAi: missing-key yields assessment-ai-needs-key', async () => {
+  const doc = makeFakeDoc('<div data-testid="cml-question-1"><div>Question 1</div><fieldset><label><input type="radio" name="q1"> A</label><label><input type="radio" name="q1"> B</label></fieldset></div>', 'https://www.coursera.org/learn/x/quiz/q1/a');
+  const handlers = createHandlers(aiAssessmentDeps([]));
+  const out = await handlers.assessmentAi({
+    doc: doc, item: { id: 'q1', kind: 'quiz' }, rng: seededRng(1), signal: mkSignal(),
+    behaviorMode: 'fast', autoSubmitQuizzes: true,
+    aiGenerate: function () { return Promise.resolve({ ok: false, reason: 'missing-key' }); },
+    location: { origin: 'https://www.coursera.org', href: 'https://www.coursera.org/learn/x/quiz/q1/a' },
+  });
+  assert.equal(out.outcome, 'assessment-ai-needs-key');
+});
+
+test('assessmentAi: autoSubmit on but no submit button → assessment-ai-no-submit-button', async () => {
+  const doc = makeFakeDoc('<div data-testid="cml-question-1"><div>Question 1</div><textarea id="a1"></textarea></div>', 'https://www.coursera.org/learn/x/quiz/q1/a');
+  const handlers = createHandlers(aiAssessmentDeps([]));
+  const aiGenerate = function () { return Promise.resolve({ ok: true, raw: JSON.stringify({ answers: [{ id: 'q1', type: 'free_text', value: 'x' }] }) }); };
+  const out = await handlers.assessmentAi({
+    doc: doc, item: { id: 'q1', kind: 'quiz' }, rng: seededRng(1), signal: mkSignal(),
+    behaviorMode: 'fast', autoSubmitQuizzes: true, aiGenerate: aiGenerate,
+    location: { origin: 'https://www.coursera.org', href: 'https://www.coursera.org/learn/x/quiz/q1/a' },
+  });
+  assert.equal(out.outcome, 'assessment-ai-no-submit-button');
+});
