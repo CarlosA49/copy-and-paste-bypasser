@@ -1136,3 +1136,55 @@ test('assessmentAi handler: external launch page yields assessment-skipped-lti',
   const out = await handlers.assessmentAi({ doc: doc, item: { id: 'g1', kind: 'assignment' }, rng: seededRng(1), signal: mkSignal(), behaviorMode: 'fast', aiGenerate: function () { return Promise.resolve({ ok: true, raw: '{}' }); }, location: { origin: 'https://www.coursera.org', href: 'https://www.coursera.org/learn/x/gradedLti/g1/a' } });
   assert.equal(out.outcome, 'assessment-skipped-lti');
 });
+
+// ---- Phase D: peer-review routing ----
+function mkSignal() {
+  return { aborted: false, addEventListener: function () {}, removeEventListener: function () {} };
+}
+
+test('createHandlers exposes a peerReview handler that fills a rubric and submits', async () => {
+  const doc = makeFakeDoc(
+    '<div data-testid="peer-review-content">' +
+      '<fieldset role="radiogroup" aria-label="Clarity">' +
+        '<label class="cds-checkboxAndRadio-input"><input type="radio" name="c1"><span>0 points</span></label>' +
+        '<label class="cds-checkboxAndRadio-input"><input type="radio" name="c1"><span>2 points</span></label>' +
+      '</fieldset>' +
+      '<textarea data-required="true" aria-label="Feedback"></textarea>' +
+      '<button class="cds-button-primary"><span class="cds-button-label">Submit</span></button>' +
+    '</div>',
+    'https://www.coursera.org/learn/x/peer/p1/review'
+  );
+  let submitted = false;
+  doc.querySelector('.cds-button-primary').click = function () { submitted = true; };
+
+  const fakeEngine2 = {
+    TypingEngine: function FakeEngine() {
+      this.start = function (opts) { opts.target.value = opts.text; opts.onDone && opts.onDone(); };
+      this.stop = function () {};
+    },
+  };
+  const fakeInjector2 = { insertOrBackspace: function () {}, isEditable: function () { return true; } };
+
+  const handlers = createHandlers({
+    sleep: function () { return Promise.resolve(); },
+    timing: require('../lib/autopilot-timing.js'),
+    peerReview: require('../lib/peer-review.js'),
+    peerReviewReplies: require('../lib/peer-review-replies.js'),
+    typingEngine: fakeEngine2,
+    typingInjector: fakeInjector2,
+  });
+
+  assert.equal(typeof handlers.peerReview, 'function', 'should expose a peerReview handler');
+  const out = await handlers.peerReview({
+    doc: doc,
+    item: { id: 'p1', kind: 'peer' },
+    rng: seededRng(1),
+    signal: mkSignal(),
+    behaviorMode: 'fast',
+    replyHistory: [],
+  });
+  assert.equal(doc.querySelectorAll('input[name="c1"]')[1].checked, true, 'highest option checked');
+  assert.ok(doc.querySelector('textarea').value.length > 0, 'comment filled');
+  assert.equal(submitted, true, 'auto-submitted');
+  assert.equal(out.outcome, 'peer-review-submitted');
+});
