@@ -10,6 +10,10 @@ const {
   isExcludedNode,
   assessmentRoot,
   withinAssessment,
+  findOutlineNav,
+  findModuleRegions,
+  findItemLinks,
+  findNextItemButton,
 } = require('../lib/coursera-dom.js');
 
 function dom(html, url) {
@@ -190,4 +194,94 @@ test('withinAssessment is true for a node inside the assessment root and false f
   assert.equal(withinAssessment(d.getElementById('ok-btn')), true);
   assert.equal(withinAssessment(d.getElementById('ext-btn')), false);
   assert.equal(withinAssessment(d.getElementById('nav-btn')), false);
+});
+
+// A small fixture that mirrors the captured outline shape: a role=navigation
+// landmark containing role=region modules, each with a level-3 role=heading
+// toggle button (clickable + expandable) and ul>li>div>a item links.
+function outlineFixture() {
+  return dom(
+    '<nav role="navigation" aria-label="Course Material">' +
+      '<div role="region" aria-label="Module 1 Course Pages">' +
+        '<div role="heading" aria-level="3"><button aria-expanded="true">Module 1 Course Pages</button></div>' +
+        '<ul><li><div>' +
+          '<a role="link" href="/learn/matlab/lecture/cp1/course-preview" aria-label="Video, Course Preview, Completed, 2 min">Course Preview</a>' +
+        '</div></li>' +
+        '<li><div>' +
+          '<a role="link" href="/learn/matlab/supplement/syl/syllabus" aria-label="Reading, Syllabus, Completed, 10 min">Syllabus</a>' +
+        '</div></li></ul>' +
+      '</div>' +
+      '<div role="region" aria-label="Module 2 The MATLAB Environment">' +
+        '<div role="heading" aria-level="3"><button aria-expanded="false">Module 2 The MATLAB Environment</button></div>' +
+        '<ul><li><div>' +
+          '<a role="link" href="/learn/matlab/lecture/intro/introduction" aria-label="Video, Introduction, Completed, 12 min">Introduction</a>' +
+        '</div></li></ul>' +
+      '</div>' +
+    '</nav>'
+  );
+}
+
+test('findOutlineNav returns the role=navigation outline landmark', () => {
+  const d = outlineFixture();
+  const navEl = findOutlineNav(d);
+  assert.ok(navEl);
+  assert.equal(navEl.getAttribute('role'), 'navigation');
+});
+
+test('findModuleRegions returns one entry per role=region module with title/headingToggle/expanded', () => {
+  const d = outlineFixture();
+  const regions = findModuleRegions(d);
+  assert.equal(regions.length, 2);
+  assert.equal(regions[0].title, 'Module 1 Course Pages');
+  assert.equal(regions[0].expanded, true);
+  assert.ok(regions[0].headingToggle);
+  assert.equal(regions[0].headingToggle.tagName.toUpperCase(), 'BUTTON');
+  assert.equal(regions[1].title, 'Module 2 The MATLAB Environment');
+  assert.equal(regions[1].expanded, false);
+});
+
+test('findItemLinks returns the ul>li>div>a item anchors of a region', () => {
+  const d = outlineFixture();
+  const regions = findModuleRegions(d);
+  const links = findItemLinks(regions[0].region);
+  assert.equal(links.length, 2);
+  assert.equal(links[0].getAttribute('href'), '/learn/matlab/lecture/cp1/course-preview');
+  assert.equal(links[1].getAttribute('href'), '/learn/matlab/supplement/syl/syllabus');
+});
+
+test('findItemLinks over the whole document collects all /learn/ anchors and skips excluded ones', () => {
+  const d = dom(
+    '<div id="ccp-host-root"><a href="/learn/matlab/lecture/x/sidebar-link">x</a></div>' +
+    '<main><a href="/learn/matlab/lecture/v1/intro">Intro</a><a href="/learn/matlab/quiz/q1">Quiz</a></main>'
+  );
+  const links = findItemLinks(d);
+  const hrefs = links.map(function (a) { return a.getAttribute('href'); });
+  assert.deepEqual(hrefs, ['/learn/matlab/lecture/v1/intro', '/learn/matlab/quiz/q1']);
+});
+
+test('findNextItemButton finds a role=button "Go to next item" (locale-tolerant substring)', () => {
+  const d = dom(
+    '<main>' +
+      '<button>Mark as completed</button>' +
+      '<div role="button">Go to next item</div>' +
+    '</main>'
+  );
+  const btn = findNextItemButton(d);
+  assert.ok(btn);
+  assert.equal(btn.getAttribute('role'), 'button');
+});
+
+test('findNextItemButton matches an aria-label and ignores excluded chat buttons', () => {
+  const d = dom(
+    '<div id="boostai-chat-panel-composer"><button aria-label="Next item">Send</button></div>' +
+    '<main><button aria-label="Go to next item">→</button></main>'
+  );
+  const btn = findNextItemButton(d);
+  assert.ok(btn);
+  assert.equal(btn.getAttribute('aria-label'), 'Go to next item');
+});
+
+test('findNextItemButton returns null when there is no next-item control', () => {
+  const d = dom('<main><button>Mark as completed</button></main>');
+  assert.equal(findNextItemButton(d), null);
 });
