@@ -7123,3 +7123,33 @@ test('peer-review usedComments are folded into replyHistory and reach the next i
   assert.ok(p2Call, 'p2 peer handler should have run');
   assert.ok(p2Call.replyHistory.indexOf('comment-for-p1') !== -1, 'p2 ctx.replyHistory must include p1 comment');
 });
+
+test('buildOrderedQueue: peer-review un-blocks when EITHER aiAnswerAssessments or autoSubmitQuizzes is on', () => {
+  const { buildOrderedQueue } = require('../lib/module-autopilot.js');
+  const scraperMod = require('../lib/module-scraper.js');
+  const rawItems = [
+    { id: 'v1', kind: 'video', url: '/learn/x/lecture/v1/intro', title: 'Lecture', completed: false },
+    { id: 'pr1', kind: 'peer-review', url: '/learn/x/peer/pr1/review', title: 'Peer Review', completed: false },
+  ];
+  const none = buildOrderedQueue(scraperMod, rawItems, null, {});
+  const n = none.queue.find(function (it) { return it.id === 'pr1'; });
+  assert.ok(n && n.blocked === true, 'peer-review blocked when no toggle');
+  const auto = buildOrderedQueue(scraperMod, rawItems, null, { autoSubmitQuizzes: true });
+  const a = auto.queue.find(function (it) { return it.id === 'pr1'; });
+  assert.ok(a && !a.blocked, 'peer-review un-blocked when autoSubmitQuizzes on');
+  const ai = buildOrderedQueue(scraperMod, rawItems, null, { aiAnswerAssessments: true });
+  const b = ai.queue.find(function (it) { return it.id === 'pr1'; });
+  assert.ok(b && !b.blocked, 'peer-review un-blocked when aiAnswerAssessments on');
+});
+
+test('buildOrderedQueue: quiz still requires the AI toggle (autoSubmit alone does NOT un-block a quiz)', () => {
+  const { buildOrderedQueue } = require('../lib/module-autopilot.js');
+  const scraperMod = require('../lib/module-scraper.js');
+  const rawItems = [
+    { id: 'v1', kind: 'video', url: '/learn/x/lecture/v1/intro', title: 'Lecture', completed: false },
+    { id: 'q1', kind: 'quiz', url: '/learn/x/quiz/q1/intro-quiz', title: 'Quiz', completed: false },
+  ];
+  const auto = buildOrderedQueue(scraperMod, rawItems, null, { autoSubmitQuizzes: true });
+  const q = auto.queue.find(function (it) { return it.id === 'q1'; });
+  assert.ok(q && q.blocked === true, 'quiz stays blocked without the AI toggle');
+});
