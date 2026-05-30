@@ -80,3 +80,37 @@ test('openai createClient end-to-end 200 normalizes and never leaks the key', as
   assert.equal(String(f.calls[0].init.body || '').indexOf('sk-SUPER-SECRET'), -1);
   assert.equal(f.calls[0].init.headers.Authorization, 'Bearer sk-SUPER-SECRET');
 });
+
+test('deepseek buildRequest targets api.deepseek.com with json_object response_format and the key only in Authorization', () => {
+  const a = aiProviders.get('deepseek');
+  const req = a.buildRequest(SNAP, 'sk-DS-SECRET', { model: 'deepseek-chat' });
+  assert.equal(req.url, 'https://api.deepseek.com/chat/completions');
+  assert.equal(req.method, 'POST');
+  assert.equal(req.headers.Authorization, 'Bearer sk-DS-SECRET');
+  const body = JSON.parse(req.body);
+  assert.equal(body.model, 'deepseek-chat');
+  assert.equal(body.response_format.type, 'json_object');
+  assert.equal(req.body.indexOf('sk-DS-SECRET'), -1);
+});
+
+test('deepseek default model is deepseek-chat when no model option supplied', () => {
+  const a = aiProviders.get('deepseek');
+  const req = a.buildRequest(SNAP, 'sk-x', {});
+  assert.equal(JSON.parse(req.body).model, 'deepseek-chat');
+});
+
+test('deepseek system prompt contains json, math_input, and the {"type":"text"} shape', () => {
+  const a = aiProviders.get('deepseek');
+  const body = JSON.parse(a.buildRequest(SNAP, 'sk-x', {}).body);
+  const system = body.messages[0].content;
+  assert.ok(/\bjson\b/i.test(system));
+  assert.ok(system.indexOf('math_input') !== -1);
+  assert.ok(system.indexOf('"type":"text"') !== -1 || system.indexOf('"type": "text"') !== -1);
+});
+
+test('deepseek parseResponse normalizes choices[0].message.content to raw.answers', () => {
+  const a = aiProviders.get('deepseek');
+  const r = a.parseResponse({ choices: [{ message: { content: JSON.stringify({ answers: [{ question_id: 'q1' }] }) } }] });
+  assert.equal(r.ok, true);
+  assert.equal(r.raw.answers[0].question_id, 'q1');
+});
