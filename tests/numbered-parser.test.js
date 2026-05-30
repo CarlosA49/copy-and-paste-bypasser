@@ -300,3 +300,91 @@ test('parseNumberedAnswers: numbered list also gets segment annotation', () => {
   assert.equal(out[1].segments, undefined);
   assert.equal(out[2].segments && out[2].segments.kind, 'sequence');
 });
+
+// === Preamble + bare ordered lines (user-reported regression 2026-05-28) ===
+
+test('parseNumberedAnswers: "Final answers:" preamble + 10 bare lines yields 10 items numbered 1-10', () => {
+  const lines = ['uncertainty','2W','radio wave','N0/2','Channel Encoding','boundaries','True','MCS','orthogonal','TDMA'];
+  const raw = 'Final answers:\n\n' + lines.join('\n');
+  const out = parseNumberedAnswers(raw);
+  assert.equal(out.length, 10, 'preamble must be stripped, only 10 answers remain');
+  for (let i = 0; i < 10; i++) {
+    assert.equal(out[i].questionNumber, i + 1, 'question ' + (i + 1) + ' numbering');
+    assert.equal(out[i].rawAnswer, lines[i], 'question ' + (i + 1) + ' answer');
+  }
+});
+
+test('parseNumberedAnswers: no preamble — just 10 bare lines — yields 10 items', () => {
+  const lines = ['uncertainty','2W','radio wave','N0/2','Channel Encoding','boundaries','True','MCS','orthogonal','TDMA'];
+  const out = parseNumberedAnswers(lines.join('\n'));
+  assert.equal(out.length, 10);
+  assert.equal(out[0].rawAnswer, 'uncertainty');
+  assert.equal(out[9].rawAnswer, 'TDMA');
+});
+
+test('parseNumberedAnswers: "Here are my answers:" preamble + 10 bare lines yields 10 items', () => {
+  const lines = ['uncertainty','2W','radio wave','N0/2','Channel Encoding','boundaries','True','MCS','orthogonal','TDMA'];
+  const raw = 'Here are my answers:\n\n' + lines.join('\n');
+  const out = parseNumberedAnswers(raw);
+  assert.equal(out.length, 10);
+  assert.equal(out[0].rawAnswer, 'uncertainty');
+});
+
+test('parseNumberedAnswers: extra blank lines / CRLF between answers do not break ordering', () => {
+  const raw = 'Final answers:\r\n\r\n\r\nuncertainty\r\n\r\n2W\r\n\r\n\r\nradio wave\nN0/2\nChannel Encoding\nboundaries\nTrue\nMCS\northogonal\nTDMA';
+  const out = parseNumberedAnswers(raw);
+  assert.equal(out.length, 10);
+  assert.equal(out[0].rawAnswer, 'uncertainty');
+  assert.equal(out[9].rawAnswer, 'TDMA');
+});
+
+// === Option-enumeration shape (user-reported regression 2026-05-28) ===
+// A line that enumerates multiple options (e.g. "A: X B: Y C: Z") with no
+// commas/and separators provides no actionable selection signal. The parser
+// must flag such lines so the applier can refuse rather than guess.
+
+test('parseOrderedLines: 5-label enumeration "A: X B: Y C: Z D: W E: V" is flagged enumeration', () => {
+  const raw = 'A: Monopole B: Dipole C: PCB D: Feedhorn E: Cassegrain\nB';
+  const out = parseOrderedLines(raw, 2);
+  assert.equal(out.length, 2);
+  assert.equal(out[0].enumeration, true, 'line 1 must be flagged as option enumeration');
+  assert.equal(out[0].segments, undefined, 'enumeration line has no segments to fill');
+  // Bare "B" must NOT be flagged — it is a legit single-letter selection.
+  assert.equal(out[1].enumeration, undefined, 'bare "B" must not be flagged');
+});
+
+test('parseOrderedLines: 2-label enumeration "A: X B: Y" is also flagged enumeration', () => {
+  const raw = 'A: foo B: bar\nplain answer';
+  const out = parseOrderedLines(raw, 2);
+  assert.equal(out.length, 2);
+  assert.equal(out[0].enumeration, true, 'two-label enumeration still ambiguous → flag');
+  assert.equal(out[1].enumeration, undefined);
+});
+
+test('parseAnswerSegments: real letter-segment "(A) X, (B) Y" is NOT marked enumeration (commas → valid segments)', () => {
+  // The line is already returned as kind:'letters' segments — segments path
+  // wins, so the enumeration flag is irrelevant here. Make sure adding the
+  // enumeration helper did not accidentally hijack legit segments.
+  const r = numberedParser.parseAnswerSegments('(A) red, (B) blue');
+  assert.equal(r.kind, 'letters');
+});
+
+test('parseNumberedAnswers: lines containing commas, semicolons, and quotes are preserved verbatim', () => {
+  const lines = [
+    'a, b, c',
+    'one; two; three',
+    '"quoted answer"',
+    "it's a contraction",
+    'paren (inline) ok',
+    'mixed: x, y; z',
+    'plain word',
+    'another plain',
+    'final word',
+    'last',
+  ];
+  const out = parseNumberedAnswers(lines.join('\n'));
+  assert.equal(out.length, 10);
+  for (let i = 0; i < 10; i++) {
+    assert.equal(out[i].rawAnswer, lines[i], 'line ' + (i + 1) + ' preserved verbatim');
+  }
+});

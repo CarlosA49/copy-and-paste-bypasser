@@ -1095,4 +1095,55 @@ test('U13-S2: after mount + populateUiRevisionTag(shadow), the placeholder reads
   }
 });
 
+// === Answering for you tab: bare-line paste fallback (regression 2026-05-28) ===
+//
+// When the legacy answer-parser yields no candidates, the apply handler must
+// fall back to the question-indexed answer-applier so a "N bare lines for N
+// questions" paste (with or without preamble) still fills the page.
+
+test('answering-for-you: bare-line paste fallback fills via applyAnswers when legacy parser yields zero', () => {
+  // Build a fresh DOM containing both the sidebar mount target AND a 10-question quiz.
+  delete require.cache[SIDEBAR_PATH];
+  const ten = [];
+  for (let i = 1; i <= 10; i++) {
+    ten.push('<section><h3>Question ' + i + '</h3><p>Q</p><textarea id="ans' + i + '"></textarea></section>');
+  }
+  const dom = new JSDOM('<!doctype html><html><body>' + ten.join('') + '</body></html>',
+    { url: 'https://www.coursera.org/learn/x/quiz/q1/wk1' });
+  global.window = dom.window;
+  global.document = dom.window.document;
+  global.navigator = dom.window.navigator;
+
+  // Wire production modules onto window.ClipboardCleaner so sidebar can find them.
+  dom.window.ClipboardCleaner = dom.window.ClipboardCleaner || {};
+  dom.window.ClipboardCleaner.answerParser   = require('../lib/answer-parser.js');
+  dom.window.ClipboardCleaner.answerMatcher  = require('../lib/answer-matcher.js');
+  dom.window.ClipboardCleaner.answerApplier  = require('../lib/answer-applier.js');
+
+  const sidebar = require('../lib/sidebar.js');
+  sidebar.mount();
+  const host = dom.window.document.getElementById('ccp-host-root');
+  const shadow = host && host.shadowRoot ? host.shadowRoot : host;
+
+  // User pastes 10 bare-prose lines into the Answering for you textarea.
+  const lines = ['uncertainty','radio','N0','Channel','boundaries','True','MCS','orthogonal','TDMA','Diamagnetism'];
+  const raw = 'Final answers:\n\n' + lines.join('\n');
+  const ta = shadow.querySelector('[data-role="answer-text"]');
+  const apply = shadow.querySelector('[data-action="answer-apply"]');
+  const status = shadow.querySelector('[data-role="answer-status"]');
+  assert.ok(ta && apply && status, 'sidebar elements present');
+  ta.value = raw;
+  apply.click();
+
+  // Expectation: every textarea on the page is filled positionally.
+  let filled = 0;
+  for (let i = 1; i <= 10; i++) {
+    const el = dom.window.document.getElementById('ans' + i);
+    if (el && (el.value || '').trim().length > 0) filled++;
+  }
+  assert.equal(filled, 10, 'all 10 textareas filled; status="' + (status.textContent || '') + '"');
+  assert.ok(!/no answer candidates/i.test(status.textContent || ''),
+    'must not show the legacy "no candidates" error; got: ' + JSON.stringify(status.textContent));
+});
+
 module.exports = { freshSidebar, SIDEBAR_PATH };

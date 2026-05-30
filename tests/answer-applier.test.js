@@ -548,3 +548,54 @@ test('E2E: user-reported paste fills multi-target questions, refuses single-lett
   assert.equal(r.summary.filled, 2, 'Q1 and Q3 filled');
   assert.equal(r.summary.failed, 1, 'Q2 refused');
 });
+
+// === Option-enumeration paste (user-reported regression 2026-05-28) ===
+// Line 1 of the paste lists all five options without indicating which one is
+// picked. Filling any option would be wrong → refuse (clean miss). The other
+// two questions have unambiguous single-letter picks ("B", "D") that MUST
+// still work.
+test('E2E: option-enumeration line is refused, single-letter picks still work', () => {
+  const { JSDOM } = require('jsdom');
+  const html = ''
+    + '<section><h3>Question 1</h3><p>Pick antenna</p>'
+    + '<label><input type="radio" name="q1" value="A">Monopole</label>'
+    + '<label><input type="radio" name="q1" value="B">Dipole</label>'
+    + '<label><input type="radio" name="q1" value="C">PCB</label>'
+    + '<label><input type="radio" name="q1" value="D">Feedhorn</label>'
+    + '<label><input type="radio" name="q1" value="E">Cassegrain</label>'
+    + '</section>'
+    + '<section><h3>Question 2</h3><p>Pick</p>'
+    + '<label><input type="radio" name="q2" value="A">Alpha</label>'
+    + '<label><input type="radio" name="q2" value="B">Beta</label>'
+    + '<label><input type="radio" name="q2" value="C">Gamma</label>'
+    + '</section>'
+    + '<section><h3>Question 3</h3><p>Pick</p>'
+    + '<label><input type="radio" name="q3" value="A">One</label>'
+    + '<label><input type="radio" name="q3" value="B">Two</label>'
+    + '<label><input type="radio" name="q3" value="C">Three</label>'
+    + '<label><input type="radio" name="q3" value="D">Four</label>'
+    + '</section>';
+  const d = new JSDOM('<!doctype html><html><body>' + html + '</body></html>').window.document;
+  const raw = 'A: Monopole B: Dipole C: PCB D: Feedhorn E: Cassegrain\nB\nD';
+  const r = applyAnswers(raw, d.body, { verbose: false });
+
+  // Q1: enumeration line — NO radio selected (clean miss, not wrong guess).
+  const q1 = d.querySelectorAll('input[name="q1"]');
+  assert.equal(q1[0].checked, false, 'enumeration must not select Monopole');
+  assert.equal(q1[1].checked, false, 'enumeration must not select Dipole');
+  assert.equal(q1[2].checked, false, 'enumeration must not select PCB');
+  assert.equal(q1[3].checked, false, 'enumeration must not select Feedhorn');
+  assert.equal(q1[4].checked, false, 'enumeration must not select Cassegrain');
+
+  // Q2: bare "B" still picks option B (single-letter selection unaffected).
+  const q2 = d.querySelectorAll('input[name="q2"]');
+  assert.equal(q2[1].checked, true, 'bare "B" picks option B');
+
+  // Q3: bare "D" still picks option D.
+  const q3 = d.querySelectorAll('input[name="q3"]');
+  assert.equal(q3[3].checked, true, 'bare "D" picks option D');
+
+  const q1Result = r.results.find(function (x) { return x.questionNumber === 1; });
+  assert.equal(q1Result.status, 'failed');
+  assert.equal(q1Result.reason, 'option-enumeration');
+});
