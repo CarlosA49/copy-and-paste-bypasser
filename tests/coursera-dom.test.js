@@ -14,6 +14,7 @@ const {
   findModuleRegions,
   findItemLinks,
   findNextItemButton,
+  isExternalLaunchPage,
 } = require('../lib/coursera-dom.js');
 
 function dom(html, url) {
@@ -284,4 +285,90 @@ test('findNextItemButton matches an aria-label and ignores excluded chat buttons
 test('findNextItemButton returns null when there is no next-item control', () => {
   const d = dom('<main><button>Mark as completed</button></main>');
   assert.equal(findNextItemButton(d), null);
+});
+
+test('isExternalLaunchPage is true for a gradedLti URL', () => {
+  const d = dom('<main><p>Some content</p></main>');
+  assert.equal(
+    isExternalLaunchPage(d, 'https://www.coursera.org/learn/matlab/gradedLti/0OaH5/assignment-echo-generator'),
+    true
+  );
+});
+
+test('isExternalLaunchPage is true when a role=form "Launch App" is present (regardless of URL)', () => {
+  const d = dom(
+    '<main>' +
+      '<input type="checkbox" id="agreement-checkbox-base">' +
+      '<form role="form" aria-label="Launch App" action="https://learningtool.mathworks.com/lti/oidc" method="post">' +
+        '<button>Launch app. Opens in new window</button>' +
+      '</form>' +
+    '</main>'
+  );
+  assert.equal(isExternalLaunchPage(d, 'https://www.coursera.org/learn/matlab/lecture/v1/intro'), true);
+});
+
+test('isExternalLaunchPage is false for an in-page answerable assessment with no launch form', () => {
+  const d = dom('<main><fieldset><input type="radio" name="q1"><input type="radio" name="q1"></fieldset></main>');
+  assert.equal(isExternalLaunchPage(d, 'https://www.coursera.org/learn/matlab/quiz/q1/check'), false);
+});
+
+test('GROUND TRUTH (extraction): the gradedLti launch page is recognized despite heuristicPageType="dashboard"', () => {
+  // Derived from dom-extraction-ex_mpqxgj5l_aneblp.json:
+  // source.url=/learn/matlab/gradedLti/0OaH5/assignment-echo-generator,
+  // form F1 role=form accessibleName="Launch App" action=mathworks/lti/oidc,
+  // heuristicPageType={type:"dashboard",confidence:"low"} (must NOT be relied on).
+  const url = 'https://www.coursera.org/learn/matlab/gradedLti/0OaH5/assignment-echo-generator';
+  const d = dom(
+    '<main>' +
+      '<h1>Assignment: Echo Generator</h1>' +
+      '<input type="checkbox" id="agreement-checkbox-base">' +
+      '<form role="form" aria-label="Launch App" action="https://learningtool.mathworks.com/lti/oidc" method="post">' +
+        '<button>Launch app. Opens in new window</button>' +
+      '</form>' +
+    '</main>',
+    url
+  );
+  assert.equal(isExternalLaunchPage(d, url), true);
+  // And the URL classifies as gradedLti, not 'other'.
+  assert.equal(classifyKind(url), 'gradedLti');
+});
+
+test('GROUND TRUTH (extraction): the ungradedWidget item parses, classifies as plugin, and keeps its id', () => {
+  // Derived from accessibleName "Ungraded Plugin, Completing MATLAB Programming Assignments, Not submitted, 15 min"
+  // and href /learn/matlab/ungradedWidget/8h1hv/completing-matlab-programming-assignments.
+  const href = '/learn/matlab/ungradedWidget/8h1hv/completing-matlab-programming-assignments';
+  const name = 'Ungraded Plugin, Completing MATLAB Programming Assignments, Not submitted, 15 min';
+  assert.deepEqual(parseLearnUrl(href), {
+    courseSlug: 'matlab', kind: 'ungradedWidget', id: '8h1hv', itemSlug: 'completing-matlab-programming-assignments',
+  });
+  assert.equal(classifyKind(href, name), 'plugin');
+  assert.equal(itemStatus(name), 'not-submitted');
+  const parsed = parseItemAccessibleName(name);
+  assert.equal(parsed.title, 'Completing MATLAB Programming Assignments');
+  assert.equal(parsed.durationText, '15 min');
+});
+
+test('GROUND TRUTH (extraction): contamination nodes are excluded while real outline links are kept', () => {
+  // The page DOM carries the extension sidebar (#ccp-host-root, name=ccp-behavior,
+  // "Paste or type text..." textarea) and the Boost chat ("Ask your question here",
+  // "Send", #boostai-chat-panel-composer). These must be hard-excluded.
+  const d = dom(
+    '<div id="ccp-host-root"><div class="ccp-host">' +
+      '<input name="ccp-behavior" type="radio">' +
+      '<textarea placeholder="Paste or type text..."></textarea>' +
+    '</div></div>' +
+    '<div id="boostai-chat-panel-composer"><textarea placeholder="Ask your question here"></textarea><button>Send</button></div>' +
+    '<nav role="navigation" aria-label="Course Material">' +
+      '<div role="region" aria-label="Module 1 Course Pages">' +
+        '<ul><li><div><a role="link" href="/learn/matlab/lecture/cp1/course-preview" aria-label="Video, Course Preview, Completed, 2 min">Course Preview</a></div></li></ul>' +
+      '</div>' +
+    '</nav>'
+  );
+  assert.equal(isExcludedNode(d.querySelector('input[name="ccp-behavior"]')), true);
+  assert.equal(isExcludedNode(d.querySelector('#ccp-host-root textarea')), true);
+  assert.equal(isExcludedNode(d.querySelector('#boostai-chat-panel-composer textarea')), true);
+  assert.equal(isExcludedNode(d.querySelector('#boostai-chat-panel-composer button')), true);
+  const links = findItemLinks(d);
+  assert.equal(links.length, 1);
+  assert.equal(links[0].getAttribute('href'), '/learn/matlab/lecture/cp1/course-preview');
 });
