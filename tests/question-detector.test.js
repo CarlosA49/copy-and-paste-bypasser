@@ -142,3 +142,46 @@ test('detectQuestions excludes a DISTINCT-numbered sidebar question that dedup c
   assert.ok(qs.every(function (q) { return q.container.closest('#ccp-host-root') === null; }),
     'no detected question may live inside the extension sidebar');
 });
+
+test('detectQuestions: numbers containers by ordinal when no literal "Question N"', () => {
+  const j = new JSDOM('<!doctype html><html><body>' +
+    '<div data-testid="cml-question-a"><fieldset>' +
+      '<label><input type="radio" name="qa"> Yes</label>' +
+      '<label><input type="radio" name="qa"> No</label>' +
+    '</fieldset></div>' +
+    '<div data-testid="cml-question-b"><fieldset>' +
+      '<label><input type="radio" name="qb"> True</label>' +
+      '<label><input type="radio" name="qb"> False</label>' +
+    '</fieldset></div>' +
+    '</body></html>', { url: 'https://www.coursera.org/learn/x/quiz/q/a' });
+  const out = detectQuestions(j.window.document.body);
+  assert.equal(out.length, 2);
+  assert.equal(out[0].questionNumber, 1);
+  assert.equal(out[1].questionNumber, 2);
+});
+
+test('detectQuestions: a headerless data-testid="question-meta" decoy with no inputs is NOT emitted', () => {
+  const j = new JSDOM('<!doctype html><html><body>' +
+    '<div data-testid="question-meta"><span>Points: 5</span></div>' +
+    '<div data-testid="cml-question-a"><fieldset>' +
+      '<label><input type="radio" name="qa"> Yes</label>' +
+      '<label><input type="radio" name="qa"> No</label>' +
+    '</fieldset></div>' +
+    '</body></html>', { url: 'https://www.coursera.org/learn/x/quiz/q/a' });
+  const out = detectQuestions(j.window.document.body);
+  assert.equal(out.length, 1, 'only the real radio question is emitted; the decoy is dropped');
+  assert.equal(out[0].type, 'single_choice');
+  assert.equal(out[0].questionNumber, 1, 'the kept question numbers as ordinal 1 (no gap from the dropped decoy)');
+});
+
+test('classify: detects dropdown, free_text, code, and file_upload types', () => {
+  const j = new JSDOM('<!doctype html><html><body>' +
+    '<div data-testid="cml-question-1"><select><option>x</option><option>y</option></select></div>' +
+    '<div data-testid="cml-question-2"><textarea></textarea></div>' +
+    '<div data-testid="cml-question-3"><div data-testid="code-editor"><textarea></textarea></div></div>' +
+    '<div data-testid="cml-question-4"><input type="file"></div>' +
+    '</body></html>', { url: 'https://www.coursera.org/learn/x/quiz/q/a' });
+  const out = detectQuestions(j.window.document.body);
+  const types = out.map(function (q) { return q.type; });
+  assert.deepEqual(types, ['dropdown', 'free_text', 'code', 'file_upload']);
+});
