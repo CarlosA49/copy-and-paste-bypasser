@@ -1138,9 +1138,10 @@ test('assessmentAi handler: external launch page yields assessment-skipped-lti',
 });
 
 // ---- Phase D: peer-review routing ----
-function mkSignal() {
-  return { aborted: false, addEventListener: function () {}, removeEventListener: function () {} };
-}
+// NOTE: mkSignal() is defined once near the top of this file (with _abort()).
+// A second, abort-less definition used to live here and — because function
+// declarations hoist last-wins — it silently shadowed the real one across the
+// whole file, breaking the cancellableSleep + discussion-abort tests. Removed.
 
 test('createHandlers exposes a peerReview handler that fills a rubric and submits', async () => {
   const doc = makeFakeDoc(
