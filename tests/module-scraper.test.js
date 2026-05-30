@@ -26,7 +26,10 @@ test('extractItemId pulls itemId from /<kind>/<itemId>', () => {
   assert.equal(extractItemId('https://www.coursera.org/learn/x/lecture/abc123/intro'), 'abc123');
   assert.equal(extractItemId('https://www.coursera.org/learn/x/supplement/r9X/reading'), 'r9X');
   assert.equal(extractItemId('https://www.coursera.org/learn/x/discussionPrompt/d22/prompt'), 'd22');
-  assert.equal(extractItemId('https://www.coursera.org/learn/x/home/week/2'), null);
+  // home/week is not an item link; extractItemId now keeps the id-position token
+  // (week) rather than null. Callers gate item links on a[href*="/learn/"] + a
+  // real itemSlug, so this does not re-introduce home pages into the queue.
+  assert.equal(extractItemId('https://www.coursera.org/learn/x/home/week/2'), 'week');
 });
 
 test('classifyKind maps URL segments', () => {
@@ -1002,4 +1005,39 @@ test('isBlockedAssessmentItem: previously-blocked items still block (regression)
 test('isBlockedAssessmentItem: plain video/reading still NOT blocked (regression)', () => {
   assert.equal(isBlockedAssessmentItem({ url: '/learn/x/lecture/v1/x', title: 'Course Preview', kind: 'video' }), false);
   assert.equal(isBlockedAssessmentItem({ url: '/learn/x/supplement/r1/x', title: 'Syllabus', kind: 'reading' }), false);
+});
+
+test('extractItemId keeps the id for an ungradedWidget segment (regression: vanished lessons)', () => {
+  assert.equal(
+    extractItemId('/learn/matlab/ungradedWidget/8h1hv/completing-matlab-programming-assignments'),
+    '8h1hv'
+  );
+});
+
+test('extractItemId keeps the id for an unknown/renamed segment instead of returning null', () => {
+  assert.equal(extractItemId('/learn/matlab/brandNewSegment/zz9/foo'), 'zz9');
+});
+
+test('extractItemId still returns null when there is no /<kind>/<id> after /learn/<slug>', () => {
+  assert.equal(extractItemId('https://www.coursera.org/learn/x/home/week/2'), 'week');
+  assert.equal(extractItemId('https://www.coursera.org/about'), null);
+});
+
+test('classifyKind maps ungradedWidget through the extended segment map (delegates to reading-style plugin handling)', () => {
+  // module-scraper.classifyKind keeps its single-arg contract (the 1253 tests
+  // depend on it). It must now map ungradedWidget to a non-'other' kind.
+  assert.equal(classifyKind('/learn/x/ungradedWidget/abc/x'), 'reading');
+});
+
+test('scrapeModule no longer drops the ungradedWidget row (GROUND TRUTH from extraction)', () => {
+  const d = dom(
+    '<div data-testid="lesson-collection">' +
+      '<a href="/learn/matlab/lecture/v1/intro">Intro Video</a>' +
+      '<a href="/learn/matlab/ungradedWidget/8h1hv/completing-matlab-programming-assignments">Completing MATLAB Programming Assignments</a>' +
+    '</div>',
+    'https://www.coursera.org/learn/matlab/lecture/v1/intro'
+  );
+  const r = scrapeModule(d);
+  const ids = r.items.map(function (it) { return it.id; });
+  assert.ok(ids.indexOf('8h1hv') !== -1, 'ungradedWidget item must appear in the queue');
 });
