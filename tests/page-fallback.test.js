@@ -114,3 +114,30 @@ test('findGoToNextItemButton: matches when text is inside span.cds-button-label'
   assert.ok(btn);
   assert.equal(btn.tagName, 'BUTTON');
 });
+
+test('findGoToNextItemButton matches a non-whole-string label like "Go to next item (Lesson 2)"', () => {
+  const { findGoToNextItemButton } = require('../lib/page-fallback.js');
+  const d = dom('<main><div role="button">Go to next item (Lesson 2)</div></main>');
+  const btn = findGoToNextItemButton(d.body);
+  assert.ok(btn);
+  assert.equal(btn.getAttribute('role'), 'button');
+});
+
+test('findGoToNextItemButton matches via aria-label and ignores the Boost chat composer', () => {
+  const { findGoToNextItemButton } = require('../lib/page-fallback.js');
+  const d = dom(
+    '<div id="boostai-chat-panel-composer"><button aria-label="next item">Send</button></div>' +
+    '<main><button aria-label="Go to next item">→</button></main>'
+  );
+  const btn = findGoToNextItemButton(d.body);
+  assert.ok(btn);
+  assert.equal(btn.getAttribute('aria-label'), 'Go to next item');
+});
+
+test('findGoToNextItemButton still matches the legacy whole-string "Continue" when courseraDom finds nothing', () => {
+  const { findGoToNextItemButton } = require('../lib/page-fallback.js');
+  const d = dom('<main><button>Continue</button></main>');
+  const btn = findGoToNextItemButton(d.body);
+  assert.ok(btn);
+  assert.equal(btn.textContent, 'Continue');
+});
