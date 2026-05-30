@@ -142,3 +142,35 @@ test('FAST_VIDEO_SEEK_FROM_END_SEC = 45, FAST_POST_SEEK_WAIT_MS = 5000', () => {
   assert.equal(timing.FAST_VIDEO_SEEK_FROM_END_SEC, 45);
   assert.equal(timing.FAST_POST_SEEK_WAIT_MS, 5000);
 });
+
+const peerTiming = require('../lib/autopilot-timing.js');
+
+test('peerInterCriterionMs in [2000, 6000]', () => {
+  const rng = seededRng(1);
+  for (let i = 0; i < 50; i++) {
+    const v = peerTiming.peerInterCriterionMs(rng);
+    assert.ok(v >= 2000 && v <= 6000, 'got ' + v);
+  }
+});
+
+test('peerInterFieldMs in [1000, 4000]', () => {
+  const rng = seededRng(2);
+  for (let i = 0; i < 50; i++) {
+    const v = peerTiming.peerInterFieldMs(rng);
+    assert.ok(v >= 1000 && v <= 4000, 'got ' + v);
+  }
+});
+
+test('peerPreSubmitMs in [3000, 8000]', () => {
+  const rng = seededRng(3);
+  for (let i = 0; i < 50; i++) {
+    const v = peerTiming.peerPreSubmitMs(rng);
+    assert.ok(v >= 3000 && v <= 8000, 'got ' + v);
+  }
+});
+
+test('exports peer-review RANGES', () => {
+  assert.deepEqual(peerTiming.RANGES.peerInterCriterionSec, [2, 6]);
+  assert.deepEqual(peerTiming.RANGES.peerInterFieldSec, [1, 4]);
+  assert.deepEqual(peerTiming.RANGES.peerPreSubmitSec, [3, 8]);
+});
