@@ -39,17 +39,21 @@ The user enabled **"Auto-submit quizzes after autofill"** expecting the autopilo
 
 ## 3. Behavior model (two toggles, combined)
 
+**Un-block (open) rules:**
+- **Quiz / exam** un-block when `aiAnswerAssessments` is on (key-gated capability; needs the API key to answer).
+- **Peer review** un-blocks when **`aiAnswerAssessments` OR `autoSubmitQuizzes`** is on (canned comments need no key — **D1: either-toggle**).
+- `autoSubmitQuizzes` then decides **submit + continue** vs **fill + pause-for-review** for both kinds.
+
 | `aiAnswerAssessments` | `autoSubmitQuizzes` | Quiz / Exam | Peer review |
 |---|---|---|---|
-| off | any | skipped (blocked) — unchanged | skipped (blocked) — unchanged |
+| off | off | skipped (blocked) | skipped (blocked) |
+| off | on | skipped (needs key) | open → canned comments (typed) → **submit → continue** |
 | on (key present) | off | open → AI fill / type → **pause for review** | open → select + type comments → **pause for review** |
 | on (key present) | on | open → AI fill / type → **submit → continue** | open → select + type comments → **submit → continue** |
-| on (no key) | any | open → **pause: needs key** → auto-resume on green-check | open → canned comments still work (no key needed); submit per `autoSubmitQuizzes` |
+| on (no key) | off | open → **pause: needs-key** → auto-resume on green-check | open → select + type comments → **pause for review** |
+| on (no key) | on | open → **pause: needs-key** → auto-resume on green-check | open → select + type comments → **submit → continue** |
 
-- `aiAnswerAssessments` is the master "automate assessments" switch and un-blocks quiz/exam **and** peer-review.
-- `autoSubmitQuizzes` decides **submit + continue** vs **fill + pause-for-review** for both kinds.
-
-**Open decision (D1):** Peer-review un-blocking is gated on `aiAnswerAssessments`, so peer reviews run only when an API key is configured — even though canned comments don't need a key. Simplest single-switch model. Flip to "un-block peer-review whenever EITHER toggle is on" if preferred.
+> `aiAnswerAssessments` can be `true` in storage while no key is present (the sidebar unchecks the box on key-clear but doesn't rewrite storage — `setAiKeyStatus` gotcha). The handler handles this at runtime via the `missing-key` path, hence the "on (no key)" rows.
 
 ---
 
@@ -62,21 +66,25 @@ New handler outcomes and their classification in `isFailureOutcome` (`lib/module
 | `assessment-ai-submitted` | **no** (advance, run confirmer) | — | — |
 | `assessment-ai-needs-key` | yes | **yes** | "No AI API Key — answer it manually or via the *Answering for you* tab. I'll resume automatically when it's marked complete." |
 | `assessment-ai-no-answer` (existing) | yes | **yes** | "No AI answer produced — answer manually or via *Answering for you*; I'll resume when it's complete." (updated copy) |
-| `assessment-ai-no-submit-button` | yes | no | "AI filled the answers but no Submit button was found — submit manually, then Resume." |
+| `assessment-ai-no-submit-button` | yes | **yes** (D2) | "Answers filled — I couldn't find the Submit button. Click Submit and I'll continue once it's marked complete." |
 | `assessment-ai-answered-paused` (existing) | yes | no | "AI filled the answers — review and submit, then Resume." (unchanged; review pause, **not** auto-resumed per user choice) |
 | `peer-review-submitted` (existing) | no | — | — |
 | `peer-review-filled-paused` | yes | no | "Peer review filled — review and submit, then Resume." |
-| `peer-review-needs-user` (existing) | yes | **yes** | unchanged |
+| `peer-review-needs-user` (existing) | yes | **yes** | "Peer review needs you — complete it manually. I'll resume once it's marked complete." |
 
-Manual-answer outcomes that arm the watcher: `{ assessment-ai-needs-key, assessment-ai-no-answer, peer-review-needs-user }`.
+**Watcher-armed outcomes:** `{ assessment-ai-needs-key, assessment-ai-no-answer, assessment-ai-no-submit-button, peer-review-needs-user }`.
+
+**Messaging requirement:** every watcher-armed pause MUST surface a clear, actionable on-screen message — what the user must do (click Submit / answer manually / use the *Answering for you* tab) **and** that the autopilot will auto-resume once the item is marked complete. This reuses the existing pause UI only: `sidebar.setAutopilotPaused(true, message)` for the banner plus a `sidebar.appendAutopilotLog(...)` line when the watcher arms (e.g. `"⏳ Waiting for you to complete this — I'll resume automatically when it's marked done"`). No new UI machinery. The messages above (in `FAILURE_REASON_TEXT`) already encode the "I'll continue once it's marked complete" hint; the needs-key / no-answer copy in the table gets the same hint appended.
 
 ---
 
 ## 5. Component design
 
 ### 5.1 Queue un-block — `lib/module-autopilot.js` `buildOrderedQueue` (:110)
-- Remove the `!peerReview` exclusion so peer-review items are un-blocked when `aiOn`. Tag them so routing reaches the peer handler (they route via `handlerForKind('peer-review')` → `handlers.peerReview`; no `aiAnswerable` tag needed since peer-review isn't AI-routed). Hard-skips (`_isHardSkipBlock`: programming/assignment/LTI) stay blocked.
-- Quiz/exam un-block + `aiAnswerable:true` tag unchanged.
+- Read both flags from `settings`: `aiOn = !!settings.aiAnswerAssessments`, `autoSubmitOn = !!settings.autoSubmitQuizzes` (the full settings object is already passed via `_settingsForGate`, `:712`/`:929`).
+- **Quiz / exam:** un-block + `aiAnswerable:true` tag when `aiOn` (unchanged).
+- **Peer review (D1, either-toggle):** un-block when `aiOn || autoSubmitOn` — remove the `!peerReview` exclusion. No `aiAnswerable` tag (peer-review isn't AI-routed); it routes via `handlerForKind('peer-review')` → `handlers.peerReview`.
+- Hard-skips (`_isHardSkipBlock`: programming/assignment/LTI) stay blocked regardless.
 
 ### 5.2 Applier `deferText` mode — `lib/answer-applier.js` `applyStructuredAnswers` (:327)
 - Add `options.deferText` (default false → fully backward compatible; manual tab and quiz fallback don't pass it).
@@ -108,7 +116,7 @@ Replace the unconditional pause (step 7, `:637`) with:
 - Controller state: `_resumeWatcherTimer`, `_resumeWatcherItemId`.
 - `_armResumeWatcher(itemId)`: clears any existing; starts a ~1500ms interval that checks completion evidence for `itemId` via a shared helper (`scraperMod.findGreenCompletionIconInRow(doc, itemId)` OR `courseraDom.itemStatus` of the row anchor === `'completed'`). On detection: disarm, `appendAutopilotLog('▶ Detected completion — resuming')`, call `resume()`. Guards: bail if `destroyed`, generation changed, or persisted status no longer `paused`.
 - `_disarmResumeWatcher()`: clears timer + id. Called at: top of `runCurrentItem`, `stop()`, manual `pause()`, `resume()` entry, `destroy()`.
-- **Install point:** in `runCurrentItem`'s failure-outcome pause path (`:1260-1285`), after persisting `paused`, if `MANUAL_ANSWER_OUTCOMES[outcome.outcome]` → `_armResumeWatcher(item.id)`.
+- **Install point:** in `runCurrentItem`'s failure-outcome pause path (`:1260-1285`), after persisting `paused` and calling `setAutopilotPaused(true, reasonText)`, if `WATCHER_ARMED_OUTCOMES[outcome.outcome]` (= `{assessment-ai-needs-key, assessment-ai-no-answer, assessment-ai-no-submit-button, peer-review-needs-user}`) → emit the waiting log line and `_armResumeWatcher(item.id)`. The banner text itself comes from `FAILURE_REASON_TEXT` (§4), which already encodes the actionable instruction + auto-resume hint for each of these outcomes.
 - Resume correctness: `resume()` → `runCurrentItem` at same cursor → `alreadyCompleteIndicator` green-check check (`:1125-1127`) sees the now-complete item and advances. No special-case needed.
 
 ### 5.7 Completion robustness — `lib/completion-confirmer.js`
@@ -181,7 +189,7 @@ Verification discipline (per project memory): run tests redirected to a file and
 - `lib/sidebar.js` — warning copy.
 - `tests/*` — new + updated tests across the above.
 
-## 10. Open decisions for review
+## 10. Decisions (resolved)
 
-- **D1 (peer-review gating):** gated on `aiAnswerAssessments` (key required) vs. either-toggle. Default: AI-toggle.
-- **D2:** Should `assessment-ai-no-submit-button` also arm the watcher (user submits manually)? Default: no (treated as a review pause). Easy to flip.
+- **D1 (peer-review gating): RESOLVED → either-toggle.** Peer-review un-blocks when `aiAnswerAssessments || autoSubmitQuizzes` (canned comments need no key). Quizzes/exams still require the key (gated on `aiAnswerAssessments`).
+- **D2 (no-submit-button watcher): RESOLVED → yes.** `assessment-ai-no-submit-button` arms the auto-resume watcher (same "tool got stuck, not a pause I chose" case). Every watcher-armed pause shows an actionable banner + auto-resume hint via the existing pause UI (§4 messaging requirement).
