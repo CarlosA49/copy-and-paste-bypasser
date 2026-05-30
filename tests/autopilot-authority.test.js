@@ -831,3 +831,22 @@ test('PHASE 15 E1: internal/test surface (default) still accepts raw clear/save/
   assert.equal(fake._store[RUN_KEY].status, 'idle');
 });
 
+test('activateRun preserves settings.aiAnswerAssessments through load', async () => {
+  // Pure regression test: the activate merge already preserves any settings key
+  // (Object.assign({}, _settingsDefaults(), curSettings, newState.settings)), and
+  // _settingsDefaults() = defaults().settings, which gained aiAnswerAssessments in
+  // Task 7. This locks that round-trip so a future settings-whitelist refactor
+  // cannot silently drop the field. Mirrors this file's messenger convention.
+  const auth = createAuthority(fakeStorage());
+  const m = createInProcessMessenger(auth);
+  const seed = Object.assign(defaults(), {
+    status: 'running', runId: 'r1', cursor: 0, ownerTabKey: 't1',
+    queue: [{ id: 'q1', kind: 'quiz', url: '/learn/x/quiz/q1/a' }],
+  });
+  seed.settings = Object.assign({}, seed.settings, { aiAnswerAssessments: true });
+  await dispatch(m, 'activateRun', { state: seed });
+  const res = await dispatch(m, 'load', {});
+  assert.equal(res.ok, true);
+  assert.equal(res.state.settings.aiAnswerAssessments, true);
+});
+
