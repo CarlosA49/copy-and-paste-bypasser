@@ -913,3 +913,28 @@ test('findTextInputs ignores the Boost chat composer textarea and the extension 
   assert.equal(inputs.length, 1);
   assert.equal(inputs[0].el.id, 'real-answer');
 });
+
+test('findTextInputs: discovers a .mq-editable-field MathQuill target', () => {
+  const j = new JSDOM('<!doctype html><html><body>' +
+    '<span class="mq-editable-field" contenteditable="true"></span>' +
+    '</body></html>', { url: 'https://www.coursera.org/learn/x/quiz/q/a' });
+  const doc = j.window.document;
+  const found = findTextInputs(doc.body);
+  assert.equal(found.length, 1, 'MathQuill field must be discovered');
+  assert.equal(found[0].kind, 'mathquill');
+});
+
+test('findOptionGroups: label-wrapped cds- options without role=radio are discovered as a group', () => {
+  const j = new JSDOM('<!doctype html><html><body>' +
+    '<div data-testid="cml-question-1">' +
+      '<label class="cds-checkboxAndRadio-label"><div class="cds-1">Alpha</div></label>' +
+      '<label class="cds-checkboxAndRadio-label"><div class="cds-1">Beta</div></label>' +
+      '<label class="cds-checkboxAndRadio-label"><div class="cds-1">Gamma</div></label>' +
+    '</div>' +
+    '</body></html>', { url: 'https://www.coursera.org/learn/x/quiz/q/a' });
+  const doc = j.window.document;
+  const groups = findOptionGroups(doc.querySelector('[data-testid="cml-question-1"]'));
+  assert.equal(groups.length, 1, 'one label-wrapped option group');
+  assert.equal(groups[0].options.length, 3);
+  assert.deepEqual(groups[0].options.map(function (o) { return o.text; }), ['Alpha', 'Beta', 'Gamma']);
+});
