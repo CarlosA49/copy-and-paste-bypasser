@@ -7168,3 +7168,49 @@ test('reason text for the new pause outcomes is actionable + mentions auto-resum
   assert.ok(/submit/i.test(mod._reasonText({ outcome: 'assessment-ai-no-submit-button' })));
   assert.ok(/review/i.test(mod._reasonText({ outcome: 'peer-review-filled-paused' })));
 });
+
+test('auto-resume watcher: arms on needs-key pause, resumes when the row shows complete', async () => {
+  const QUIZ_HTML =
+    '<div data-testid="lesson-collection">' +
+      '<a href="/learn/x/quiz/q1/a">Quiz</a>' +
+      '<a href="/learn/x/supplement/r1/reading">Reading</a>' +
+    '</div>';
+  const j = makePage(QUIZ_HTML, 'https://www.coursera.org/learn/x/quiz/q1/a');
+  const storage = fakeStorage();
+  const d = stateMod.defaults();
+  d.status = 'running'; d.courseId = 'x'; d.runId = 'r1'; d.ownerTabKey = 'tab-1';
+  d.settings.aiAnswerAssessments = true;
+  d.queue = [
+    { id: 'q1', kind: 'quiz', url: '/learn/x/quiz/q1/a', title: 'Quiz', aiAnswerable: true },
+    { id: 'r1', kind: 'reading', url: '/learn/x/supplement/r1/reading', title: 'Reading' },
+  ];
+  d.cursor = 0;
+  await new Promise(function (r) { const it = {}; it[stateMod.RUN_KEY] = d; storage.set(it, r); });
+  const handlers = mkFakeHandlers();
+  handlers.assessmentAi = function () { return Promise.resolve({ outcome: 'assessment-ai-needs-key' }); };
+  let q1Complete = false;
+  const scraperMod = Object.assign({}, require('../lib/module-scraper.js'));
+  const baseGreen = scraperMod.findGreenCompletionIconInRow;
+  scraperMod.findGreenCompletionIconInRow = function (doc, id) {
+    if (id === 'q1') return q1Complete ? {} : null;
+    return baseGreen ? baseGreen(doc, id) : null;
+  };
+  const navTargets = [];
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    scraperMod: scraperMod,
+    confirmer: { waitForCompletion: function () { return Promise.resolve(true); } },
+    nowFn: function () { return 1000000; }, tabKey: 'tab-1', rng: seededRng(1),
+    resumeWatcherPollMs: 10,
+    navigate: function (url) { navTargets.push(url); return Promise.resolve(); },
+    sidebar: { setAutopilotStatus: function () {}, appendAutopilotLog: function () {}, setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; } },
+  });
+  await ap.bootIfRunning();
+  let after = await new Promise(function (r) { storage.get([stateMod.RUN_KEY], function (g) { r(g[stateMod.RUN_KEY]); }); });
+  assert.equal(after.status, 'paused', 'paused on needs-key');
+  q1Complete = true;
+  await new Promise(function (r) { setTimeout(r, 250); });
+  after = await new Promise(function (r) { storage.get([stateMod.RUN_KEY], function (g) { r(g[stateMod.RUN_KEY]); }); });
+  assert.ok(after.cursor >= 1 || after.status === 'idle', 'auto-resumed and advanced past the quiz; cursor=' + after.cursor + ' status=' + after.status);
+  ap.destroy();
+});
