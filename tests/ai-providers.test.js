@@ -194,3 +194,39 @@ test('gemini createClient end-to-end never leaks the key into URL, body, or retu
   assert.equal(String(f.calls[0].init.body || '').indexOf('gem-SECRET-KEY'), -1);
   assert.equal(f.calls[0].init.headers['x-goog-api-key'], 'gem-SECRET-KEY');
 });
+
+test('custom buildRequest appends /chat/completions to a bare base URL', () => {
+  const a = aiProviders.get('custom');
+  const req = a.buildRequest(SNAP, 'sk-CUSTOM', { model: 'my-model', baseUrl: 'https://llm.example.com/v1' });
+  assert.equal(req.url, 'https://llm.example.com/v1/chat/completions');
+  assert.equal(req.method, 'POST');
+  assert.equal(req.headers.Authorization, 'Bearer sk-CUSTOM');
+  const body = JSON.parse(req.body);
+  assert.equal(body.model, 'my-model');
+  assert.equal(req.body.indexOf('sk-CUSTOM'), -1);
+});
+
+test('custom buildRequest tolerates a trailing slash and an already-complete completions path', () => {
+  const a = aiProviders.get('custom');
+  const trailing = a.buildRequest(SNAP, 'sk-x', { model: 'm', baseUrl: 'https://llm.example.com/v1/' });
+  assert.equal(trailing.url, 'https://llm.example.com/v1/chat/completions');
+  const complete = a.buildRequest(SNAP, 'sk-x', { model: 'm', baseUrl: 'https://llm.example.com/v1/chat/completions' });
+  assert.equal(complete.url, 'https://llm.example.com/v1/chat/completions');
+});
+
+test('custom parseResponse normalizes OpenAI-shaped choices[0].message.content', () => {
+  const a = aiProviders.get('custom');
+  const r = a.parseResponse({ choices: [{ message: { content: JSON.stringify({ answers: [{ question_id: 'q1' }] }) } }] });
+  assert.equal(r.ok, true);
+  assert.equal(r.raw.answers[0].question_id, 'q1');
+});
+
+test('custom createClient end-to-end uses the supplied baseUrl and never leaks the key', async () => {
+  const f = makeFetch(function () { return makeResponse(200, { choices: [{ message: { content: '{"answers":[]}' } }] }); });
+  const c = aiProviders.get('custom').createClient({ fetchFn: f, model: 'm', baseUrl: 'https://llm.example.com/v1' });
+  const r = await c.generateAnswers(SNAP, 'sk-CUSTOM');
+  assert.equal(r.ok, true);
+  assert.equal(f.calls[0].url, 'https://llm.example.com/v1/chat/completions');
+  assert.equal(JSON.stringify(r).indexOf('sk-CUSTOM'), -1);
+  assert.equal(String(f.calls[0].init.body || '').indexOf('sk-CUSTOM'), -1);
+});
