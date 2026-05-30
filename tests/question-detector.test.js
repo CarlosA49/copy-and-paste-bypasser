@@ -100,3 +100,21 @@ test('returns [] when no question headers present', () => {
   const d = dom('<p>nothing here</p>');
   assert.deepEqual(detectQuestions(d.body), []);
 });
+
+test('detectQuestions skips question-like containers inside the extension sidebar (#ccp-host-root)', () => {
+  const { detectQuestions } = require('../lib/question-detector.js');
+  const d = dom(
+    '<div id="ccp-host-root"><div class="ccp-host">' +
+      '<div data-testid="cml-question-1"><h3>Question 1</h3>' +
+        '<fieldset><input type="radio" name="ccp-behavior"></fieldset></div>' +
+    '</div></div>' +
+    '<main>' +
+      '<div data-testid="cml-question-2"><h3>Question 1</h3>' +
+        '<fieldset><input type="radio" name="real-q"><input type="radio" name="real-q"></fieldset></div>' +
+    '</main>'
+  );
+  const qs = detectQuestions(d.body);
+  // The sidebar's masquerading "Question 1" container must not be detected.
+  assert.equal(qs.length, 1);
+  assert.ok(qs[0].container.closest('#ccp-host-root') === null);
+});
