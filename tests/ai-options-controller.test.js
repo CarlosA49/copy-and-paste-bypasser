@@ -715,3 +715,133 @@ test('PB-H6: options.html loads lib/ai-providers.js (single source of truth for 
   assert.ok(idxProviders !== -1 && idxOptions !== -1 && idxProviders < idxOptions,
     'lib/ai-providers.js must be loaded before options.js');
 });
+
+// === Phase B: provider selection controller wiring ===
+
+function makeProviderDom() {
+  const dom = new JSDOM('<!doctype html><html><body>'
+    + '<input data-role="ai-options-key" type="password">'
+    + '<button data-action="ai-options-toggle">Show</button>'
+    + '<input data-role="ai-options-remember" type="checkbox">'
+    + '<button data-action="ai-options-save">Save</button>'
+    + '<button data-action="ai-options-clear">Clear</button>'
+    + '<div data-role="ai-options-status"></div>'
+    + '<select data-role="ai-options-provider"></select>'
+    + '<input data-role="ai-options-model" type="text" list="ai-model-suggestions">'
+    + '<datalist id="ai-model-suggestions"></datalist>'
+    + '<div data-role="ai-options-base-url-row" style="display:none;">'
+    + '<input data-role="ai-options-base-url" type="text"></div>'
+    + '</body></html>');
+  return dom;
+}
+
+const PROVIDERS = [
+  { id: 'openai', label: 'OpenAI', models: ['gpt-4o-mini', 'gpt-4o'], defaultModel: 'gpt-4o-mini' },
+  { id: 'deepseek', label: 'DeepSeek', models: ['deepseek-chat'], defaultModel: 'deepseek-chat' },
+  { id: 'custom', label: 'Custom (OpenAI-compatible)', models: [], defaultModel: 'gpt-4o-mini' },
+];
+
+test('PB-C1: wire() populates the provider select from the injected providerList', async () => {
+  const dom = makeProviderDom();
+  const ctrl = createAiOptionsController({
+    document: dom.window.document,
+    messenger: fakeMessenger(function () { return { ok: true, keyPresent: false }; }),
+    storage: { get: function (k, cb) { cb({}); }, set: function (i, cb) { if (cb) cb(); } },
+    providerList: PROVIDERS,
+  });
+  ctrl.wire();
+  await new Promise(function (r) { setTimeout(r, 0); });
+  const opts = dom.window.document.querySelectorAll('[data-role="ai-options-provider"] option');
+  const values = Array.prototype.map.call(opts, function (o) { return o.value; });
+  assert.deepEqual(values, ['openai', 'deepseek', 'custom']);
+});
+
+test('PB-C2: wire() selects the stored ccp.ai.provider and applies its stored model', async () => {
+  const dom = makeProviderDom();
+  const ctrl = createAiOptionsController({
+    document: dom.window.document,
+    messenger: fakeMessenger(function () { return { ok: true, keyPresent: false }; }),
+    storage: { get: function (keys, cb) { cb({ 'ccp.ai.provider': 'openai', 'ccp.ai.model.openai': 'gpt-4o' }); }, set: function (i, cb) { if (cb) cb(); } },
+    providerList: PROVIDERS,
+  });
+  ctrl.wire();
+  await new Promise(function (r) { setTimeout(r, 0); });
+  assert.equal(dom.window.document.querySelector('[data-role="ai-options-provider"]').value, 'openai');
+  assert.equal(dom.window.document.querySelector('[data-role="ai-options-model"]').value, 'gpt-4o');
+});
+
+test('PB-C3: changing the provider dispatches setProvider via messenger (no direct storage write)', async () => {
+  const dom = makeProviderDom();
+  let storageSets = 0;
+  const sent = [];
+  const ctrl = createAiOptionsController({
+    document: dom.window.document,
+    messenger: { send: function (cmd, params, cb) { sent.push({ cmd: cmd, params: params }); if (cmd === 'keyStatus') return cb({ ok: true, keyPresent: false }); cb({ ok: true }); } },
+    storage: { get: function (k, cb) { cb({}); }, set: function (i, cb) { storageSets++; if (cb) cb(); } },
+    providerList: PROVIDERS,
+  });
+  ctrl.wire();
+  await new Promise(function (r) { setTimeout(r, 0); });
+  const sel = dom.window.document.querySelector('[data-role="ai-options-provider"]');
+  sel.value = 'openai';
+  sel.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  await new Promise(function (r) { setTimeout(r, 0); });
+  const setProv = sent.filter(function (c) { return c.cmd === 'setProvider'; });
+  assert.equal(setProv.length, 1);
+  assert.equal(setProv[0].params.provider, 'openai');
+  assert.equal(storageSets, 0, 'must persist through messenger, never page storage');
+});
+
+test('PB-C4: selecting "custom" reveals the base-URL row; other providers hide it', async () => {
+  const dom = makeProviderDom();
+  const ctrl = createAiOptionsController({
+    document: dom.window.document,
+    messenger: { send: function (cmd, params, cb) { if (cmd === 'keyStatus') return cb({ ok: true, keyPresent: false }); cb({ ok: true }); } },
+    storage: { get: function (k, cb) { cb({}); }, set: function (i, cb) { if (cb) cb(); } },
+    providerList: PROVIDERS,
+  });
+  ctrl.wire();
+  await new Promise(function (r) { setTimeout(r, 0); });
+  const sel = dom.window.document.querySelector('[data-role="ai-options-provider"]');
+  const row = dom.window.document.querySelector('[data-role="ai-options-base-url-row"]');
+  sel.value = 'custom';
+  sel.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  await new Promise(function (r) { setTimeout(r, 0); });
+  assert.notEqual(row.style.display, 'none', 'base-url row must be visible for custom');
+  sel.value = 'openai';
+  sel.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  await new Promise(function (r) { setTimeout(r, 0); });
+  assert.equal(row.style.display, 'none', 'base-url row must hide for non-custom');
+});
+
+test('PB-C5: setProvider for custom includes the entered model and baseUrl', async () => {
+  const dom = makeProviderDom();
+  const sent = [];
+  const ctrl = createAiOptionsController({
+    document: dom.window.document,
+    messenger: { send: function (cmd, params, cb) { sent.push({ cmd: cmd, params: params }); if (cmd === 'keyStatus') return cb({ ok: true, keyPresent: false }); cb({ ok: true }); } },
+    storage: { get: function (k, cb) { cb({}); }, set: function (i, cb) { if (cb) cb(); } },
+    providerList: PROVIDERS,
+  });
+  ctrl.wire();
+  await new Promise(function (r) { setTimeout(r, 0); });
+  const sel = dom.window.document.querySelector('[data-role="ai-options-provider"]');
+  sel.value = 'custom';
+  dom.window.document.querySelector('[data-role="ai-options-model"]').value = 'my-model';
+  dom.window.document.querySelector('[data-role="ai-options-base-url"]').value = 'https://llm.example.com/v1';
+  sel.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  await new Promise(function (r) { setTimeout(r, 0); });
+  const setProv = sent.filter(function (c) { return c.cmd === 'setProvider'; });
+  assert.equal(setProv.length, 1);
+  assert.deepEqual(setProv[0].params, { provider: 'custom', model: 'my-model', baseUrl: 'https://llm.example.com/v1' });
+});
+
+test('PB-C6: no provider controls present → wire() does not throw (backward compatible)', () => {
+  const dom = makeDom();
+  const ctrl = createAiOptionsController({
+    document: dom.window.document,
+    messenger: fakeMessenger(function () { return { ok: true, keyPresent: false }; }),
+    providerList: PROVIDERS,
+  });
+  assert.doesNotThrow(function () { ctrl.wire(); });
+});
