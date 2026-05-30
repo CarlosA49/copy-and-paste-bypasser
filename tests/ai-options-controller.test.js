@@ -845,3 +845,73 @@ test('PB-C6: no provider controls present → wire() does not throw (backward co
   });
   assert.doesNotThrow(function () { ctrl.wire(); });
 });
+
+// === Phase B: custom endpoint runtime permission ===
+
+test('PB-C7: selecting custom with a base URL requests host permission via the injected permissions API', async () => {
+  const dom = makeProviderDom();
+  const requested = [];
+  const sent = [];
+  const ctrl = createAiOptionsController({
+    document: dom.window.document,
+    messenger: { send: function (cmd, params, cb) { sent.push({ cmd: cmd, params: params }); if (cmd === 'keyStatus') return cb({ ok: true, keyPresent: false }); cb({ ok: true }); } },
+    storage: { get: function (k, cb) { cb({}); }, set: function (i, cb) { if (cb) cb(); } },
+    providerList: PROVIDERS,
+    permissions: { request: function (req, cb) { requested.push(req); cb(true); } },
+  });
+  ctrl.wire();
+  await new Promise(function (r) { setTimeout(r, 0); });
+  const sel = dom.window.document.querySelector('[data-role="ai-options-provider"]');
+  sel.value = 'custom';
+  dom.window.document.querySelector('[data-role="ai-options-base-url"]').value = 'https://llm.example.com/v1';
+  sel.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  await new Promise(function (r) { setTimeout(r, 0); });
+  assert.equal(requested.length, 1, 'must request host permission for the custom origin');
+  assert.ok(JSON.stringify(requested[0]).indexOf('llm.example.com') !== -1);
+  const setProv = sent.filter(function (c) { return c.cmd === 'setProvider'; });
+  assert.equal(setProv.length, 1, 'setProvider proceeds after permission granted');
+});
+
+test('PB-C8: if the host-permission request is DENIED, setProvider is NOT sent and a message is shown', async () => {
+  const dom = makeProviderDom();
+  const sent = [];
+  const ctrl = createAiOptionsController({
+    document: dom.window.document,
+    messenger: { send: function (cmd, params, cb) { sent.push({ cmd: cmd, params: params }); if (cmd === 'keyStatus') return cb({ ok: true, keyPresent: false }); cb({ ok: true }); } },
+    storage: { get: function (k, cb) { cb({}); }, set: function (i, cb) { if (cb) cb(); } },
+    providerList: PROVIDERS,
+    permissions: { request: function (req, cb) { cb(false); } },
+  });
+  ctrl.wire();
+  await new Promise(function (r) { setTimeout(r, 0); });
+  const sel = dom.window.document.querySelector('[data-role="ai-options-provider"]');
+  sel.value = 'custom';
+  dom.window.document.querySelector('[data-role="ai-options-base-url"]').value = 'https://llm.example.com/v1';
+  sel.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  await new Promise(function (r) { setTimeout(r, 0); });
+  const setProv = sent.filter(function (c) { return c.cmd === 'setProvider'; });
+  assert.equal(setProv.length, 0, 'setProvider must NOT be sent when permission is denied');
+  const status = dom.window.document.querySelector('[data-role="ai-options-status"]');
+  assert.ok(/permission/i.test(status.textContent), 'a permission-denied message must be shown');
+});
+
+test('PB-C9: non-custom provider change never requests host permission', async () => {
+  const dom = makeProviderDom();
+  const requested = [];
+  const sent = [];
+  const ctrl = createAiOptionsController({
+    document: dom.window.document,
+    messenger: { send: function (cmd, params, cb) { sent.push({ cmd: cmd, params: params }); if (cmd === 'keyStatus') return cb({ ok: true, keyPresent: false }); cb({ ok: true }); } },
+    storage: { get: function (k, cb) { cb({}); }, set: function (i, cb) { if (cb) cb(); } },
+    providerList: PROVIDERS,
+    permissions: { request: function (req, cb) { requested.push(req); cb(true); } },
+  });
+  ctrl.wire();
+  await new Promise(function (r) { setTimeout(r, 0); });
+  const sel = dom.window.document.querySelector('[data-role="ai-options-provider"]');
+  sel.value = 'openai';
+  sel.dispatchEvent(new dom.window.Event('change', { bubbles: true }));
+  await new Promise(function (r) { setTimeout(r, 0); });
+  assert.equal(requested.length, 0, 'openai must not trigger a host-permission request');
+  assert.equal(sent.filter(function (c) { return c.cmd === 'setProvider'; }).length, 1);
+});
