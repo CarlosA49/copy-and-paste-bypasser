@@ -114,3 +114,211 @@ test('detectCriteria skips excluded (extension/chat) radiogroups', () => {
   const crits = detectCriteria(doc.body, exclude);
   assert.equal(crits.length, 2, 'the extension radiogroup must be excluded');
 });
+
+// ---- handler flow ----
+
+function mkSignal() {
+  const listeners = [];
+  return {
+    aborted: false,
+    addEventListener: function (k, fn) { if (k === 'abort') listeners.push(fn); },
+    removeEventListener: function () {},
+    _abort: function () { this.aborted = true; listeners.forEach(function (fn) { fn(); }); },
+  };
+}
+
+const fakeEngine = {
+  TypingEngine: function FakeEngine() {
+    this.start = function (opts) {
+      opts.target.value = opts.text;
+      opts.onDone && opts.onDone();
+    };
+    this.stop = function () {};
+  },
+};
+const fakeInjector = {
+  insertOrBackspace: function () {},
+  isEditable: function () { return true; },
+};
+
+// A coursera-dom test double exposing only the public API the handler uses.
+function fakeCourseraDom(doc, excludeFn) {
+  return {
+    assessmentRoot: function () { return doc.body; },
+    isExcludedNode: function (el) { return excludeFn ? excludeFn(el) : false; },
+    withinAssessment: function () { return true; },
+    findNextItemButton: function () { return null; },
+  };
+}
+
+function makeHandler(deps) {
+  const base = {
+    sleep: function () { return Promise.resolve(); },
+    timing: require('../lib/autopilot-timing.js'),
+    replies: require('../lib/peer-review-replies.js'),
+    typingEngine: fakeEngine,
+    typingInjector: fakeInjector,
+  };
+  return createPeerReviewHandler(Object.assign(base, deps || {}));
+}
+
+test('handler: selects highest option per criterion, fills comment, auto-submits, returns peer-review-submitted', async () => {
+  const doc = makeFakeDoc(RUBRIC_HTML);
+  let submitted = false;
+  const submitBtn = doc.querySelector('.cds-button-primary');
+  submitBtn.click = function () { submitted = true; };
+
+  const handler = makeHandler({ courseraDom: fakeCourseraDom(doc, null) });
+  const out = await handler({
+    doc: doc,
+    item: { id: 'p1', kind: 'peer' },
+    rng: seededRng(1),
+    signal: mkSignal(),
+    behaviorMode: 'fast',
+    replyHistory: [],
+  });
+
+  // Highest option in crit1 is "2 points" (3rd radio); crit2 is "3 points" (1st radio).
+  const crit1Radios = doc.querySelectorAll('input[name="crit1"]');
+  const crit2Radios = doc.querySelectorAll('input[name="crit2"]');
+  assert.equal(crit1Radios[2].checked, true, 'highest crit1 option should be checked');
+  assert.equal(crit2Radios[0].checked, true, 'highest crit2 option should be checked');
+  assert.ok(doc.querySelector('textarea').value.length > 0, 'comment should be filled');
+  assert.equal(submitted, true, 'should auto-submit');
+  assert.equal(out.outcome, 'peer-review-submitted');
+  assert.equal(out.selections.length, 2);
+  assert.equal(out.selections[0].lowConfidence, false);
+});
+
+test('handler: pauses (peer-review-needs-user) when no rubric criteria are present', async () => {
+  const doc = makeFakeDoc('<div data-testid="peer-review-content"><p>nothing to score</p></div>');
+  const handler = makeHandler({ courseraDom: fakeCourseraDom(doc, null) });
+  const out = await handler({
+    doc: doc, item: { id: 'p1', kind: 'peer' }, rng: seededRng(1),
+    signal: mkSignal(), behaviorMode: 'fast', replyHistory: [],
+  });
+  assert.equal(out.outcome, 'peer-review-needs-user');
+});
+
+test('handler: pauses when no submit control is found (never clicks a wrong button)', async () => {
+  const noSubmit =
+    '<fieldset role="radiogroup" aria-label="Clarity">' +
+      '<label><input type="radio" name="c"><span>0 points</span></label>' +
+      '<label><input type="radio" name="c"><span>2 points</span></label>' +
+    '</fieldset>';
+  const doc = makeFakeDoc(noSubmit);
+  const handler = makeHandler({ courseraDom: fakeCourseraDom(doc, null) });
+  const out = await handler({
+    doc: doc, item: { id: 'p1', kind: 'peer' }, rng: seededRng(1),
+    signal: mkSignal(), behaviorMode: 'fast', replyHistory: [],
+  });
+  assert.equal(out.outcome, 'peer-review-needs-user');
+});
+
+test('handler: never clicks the Boost chat Send button (exclusion)', async () => {
+  const doc = makeFakeDoc(
+    RUBRIC_HTML +
+    '<button id="boost-send" class="Boost-ChatPanel-send"><span>Send</span></button>');
+  let boostClicked = false;
+  doc.querySelector('#boost-send').click = function () { boostClicked = true; };
+  let realSubmitted = false;
+  doc.querySelector('.cds-button-primary').click = function () { realSubmitted = true; };
+
+  const exclude = function (el) {
+    let n = el;
+    while (n && n.nodeType === 1) { if (n.id === 'boost-send') return true; n = n.parentElement; }
+    return false;
+  };
+  const handler = makeHandler({ courseraDom: fakeCourseraDom(doc, exclude) });
+  const out = await handler({
+    doc: doc, item: { id: 'p1', kind: 'peer' }, rng: seededRng(1),
+    signal: mkSignal(), behaviorMode: 'fast', replyHistory: [],
+  });
+  assert.equal(boostClicked, false, 'must never click the Boost Send button');
+  assert.equal(realSubmitted, true);
+  assert.equal(out.outcome, 'peer-review-submitted');
+});
+
+test('handler (human mode): dwells between criteria/fields and before submit, all within timing RANGES', async () => {
+  const doc = makeFakeDoc(RUBRIC_HTML);
+  doc.querySelector('.cds-button-primary').click = function () {};
+  const sleeps = [];
+  const handler = makeHandler({
+    courseraDom: fakeCourseraDom(doc, null),
+    sleep: function (ms) { sleeps.push(ms); return Promise.resolve(); },
+  });
+  const out = await handler({
+    doc: doc, item: { id: 'p1', kind: 'peer' }, rng: seededRng(5),
+    signal: mkSignal(), behaviorMode: 'human', replyHistory: [],
+  });
+  assert.equal(out.outcome, 'peer-review-submitted');
+  assert.ok(sleeps.length > 0, 'human mode should dwell');
+  // Every dwell must fall within one of the three peer ranges (in ms).
+  for (let i = 0; i < sleeps.length; i++) {
+    const ms = sleeps[i];
+    const inCriterion = ms >= 2000 && ms <= 6000;
+    const inField = ms >= 1000 && ms <= 4000;
+    const inPreSubmit = ms >= 3000 && ms <= 8000;
+    assert.ok(inCriterion || inField || inPreSubmit, 'dwell ' + ms + 'ms out of all peer ranges');
+  }
+});
+
+test('handler (fast mode): does not dwell', async () => {
+  const doc = makeFakeDoc(RUBRIC_HTML);
+  doc.querySelector('.cds-button-primary').click = function () {};
+  const sleeps = [];
+  const handler = makeHandler({
+    courseraDom: fakeCourseraDom(doc, null),
+    sleep: function (ms) { sleeps.push(ms); return Promise.resolve(); },
+  });
+  await handler({
+    doc: doc, item: { id: 'p1', kind: 'peer' }, rng: seededRng(1),
+    signal: mkSignal(), behaviorMode: 'fast', replyHistory: [],
+  });
+  assert.equal(sleeps.length, 0, 'fast mode should not dwell');
+});
+
+test('handler: ignores autoSubmitQuizzes and always auto-submits', async () => {
+  const doc = makeFakeDoc(RUBRIC_HTML);
+  let submitted = false;
+  doc.querySelector('.cds-button-primary').click = function () { submitted = true; };
+  const handler = makeHandler({ courseraDom: fakeCourseraDom(doc, null) });
+  const out = await handler({
+    doc: doc, item: { id: 'p1', kind: 'peer' }, rng: seededRng(1),
+    signal: mkSignal(), behaviorMode: 'fast', replyHistory: [],
+    autoSubmitQuizzes: false, // must be ignored
+  });
+  assert.equal(submitted, true);
+  assert.equal(out.outcome, 'peer-review-submitted');
+});
+
+test('handler: degrades gracefully (scopes to doc.body) when courseraDom is absent', async () => {
+  const doc = makeFakeDoc(RUBRIC_HTML);
+  let submitted = false;
+  doc.querySelector('.cds-button-primary').click = function () { submitted = true; };
+  const handler = makeHandler({}); // NO courseraDom injected
+  const out = await handler({
+    doc: doc, item: { id: 'p1', kind: 'peer' }, rng: seededRng(1),
+    signal: mkSignal(), behaviorMode: 'fast', replyHistory: [],
+  });
+  assert.equal(submitted, true);
+  assert.equal(out.outcome, 'peer-review-submitted');
+});
+
+test('handler: reports low-confidence selections in the outcome', async () => {
+  const doc = makeFakeDoc(
+    '<fieldset role="radiogroup" aria-label="Tone">' +
+      '<label><input type="radio" name="t"><span>Needs work</span></label>' +
+      '<label><input type="radio" name="t"><span>Outstanding</span></label>' +
+    '</fieldset>' +
+    '<button class="cds-button-primary"><span>Submit</span></button>');
+  doc.querySelector('.cds-button-primary').click = function () {};
+  const handler = makeHandler({ courseraDom: fakeCourseraDom(doc, null) });
+  const out = await handler({
+    doc: doc, item: { id: 'p1', kind: 'peer' }, rng: seededRng(1),
+    signal: mkSignal(), behaviorMode: 'fast', replyHistory: [],
+  });
+  assert.equal(out.outcome, 'peer-review-submitted');
+  assert.equal(out.selections.length, 1);
+  assert.equal(out.selections[0].lowConfidence, true);
+});
