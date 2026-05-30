@@ -1064,3 +1064,75 @@ test('REGRESSION: Human video also tolerates delayed <video> mount without chang
   assert.ok(completed, 'human path also records the readiness wait');
   assert.equal(completed.d.found, true);
 });
+
+test('assessmentAi handler: builds snapshot, applies AI answers, pauses (no submit)', async () => {
+  const doc = makeFakeDoc(
+    '<div id="assessment-region">' +
+      '<div data-testid="cml-question-1"><div>Question 1</div><fieldset>' +
+        '<label><input type="radio" name="q1"> Alpha</label>' +
+        '<label><input type="radio" name="q1"> Beta</label>' +
+      '</fieldset></div>' +
+    '</div>',
+    'https://www.coursera.org/learn/x/quiz/q1/a'
+  );
+  const region = doc.getElementById('assessment-region');
+  const courseraDom = {
+    isExternalLaunchPage: function () { return false; },
+    assessmentRoot: function () { return region; },
+    isExcludedNode: function () { return false; },
+  };
+  const questionContext = require('../lib/ai-question-context.js');
+  const validator = require('../lib/ai-answer-validator.js');
+  const permissive = require('../lib/ai-answer-permissive.js');
+  const answerApplier = require('../lib/answer-applier.js');
+  // AI returns a strict-JSON answer selecting "Beta" for q1.
+  const aiGenerate = function (snapshot) {
+    return Promise.resolve({ ok: true, raw: JSON.stringify({ answers: [{ question_id: 'q1', answer: { value: 'Beta' } }] }) });
+  };
+  const handlers = createHandlers({
+    sleep: function () { return Promise.resolve(); },
+    timing: require('../lib/autopilot-timing.js'),
+    answerApplier: answerApplier,
+    questionContext: questionContext,
+    validator: validator,
+    permissive: permissive,
+    courseraDom: courseraDom,
+  });
+  let submitted = false;
+  doc.querySelectorAll('button[type="submit"]').forEach(function (b) { b.click = function () { submitted = true; }; });
+  const out = await handlers.assessmentAi({
+    doc: doc, item: { id: 'q1', kind: 'quiz' }, rng: seededRng(1), signal: mkSignal(),
+    behaviorMode: 'fast', aiGenerate: aiGenerate,
+    location: { origin: 'https://www.coursera.org', href: 'https://www.coursera.org/learn/x/quiz/q1/a' },
+  });
+  const checked = doc.querySelectorAll('input[name="q1"]:checked');
+  assert.equal(checked.length, 1, 'one radio must be checked');
+  assert.equal(checked[0].parentElement.textContent.trim(), 'Beta');
+  assert.equal(out.outcome, 'assessment-ai-answered-paused');
+  assert.equal(submitted, false, 'must NEVER auto-submit');
+});
+
+test('assessmentAi handler: missing aiGenerate yields assessment-ai-no-answer; generate error pauses', async () => {
+  const doc = makeFakeDoc('<div data-testid="cml-question-1"><div>Question 1</div><fieldset><label><input type="radio" name="q1"> A</label><label><input type="radio" name="q1"> B</label></fieldset></div>', 'https://www.coursera.org/learn/x/quiz/q1/a');
+  const handlers = createHandlers({
+    sleep: function () { return Promise.resolve(); }, timing: require('../lib/autopilot-timing.js'),
+    answerApplier: require('../lib/answer-applier.js'), questionContext: require('../lib/ai-question-context.js'),
+    validator: require('../lib/ai-answer-validator.js'), permissive: require('../lib/ai-answer-permissive.js'),
+    courseraDom: { isExternalLaunchPage: function () { return false; }, assessmentRoot: function (d) { return d.body; }, isExcludedNode: function () { return false; } },
+  });
+  const noKey = await handlers.assessmentAi({ doc: doc, item: { id: 'q1', kind: 'quiz' }, rng: seededRng(1), signal: mkSignal(), behaviorMode: 'fast', location: { origin: 'https://www.coursera.org', href: 'https://www.coursera.org/learn/x/quiz/q1/a' } });
+  assert.equal(noKey.outcome, 'assessment-ai-no-answer');
+  const errd = await handlers.assessmentAi({ doc: doc, item: { id: 'q1', kind: 'quiz' }, rng: seededRng(1), signal: mkSignal(), behaviorMode: 'fast', aiGenerate: function () { return Promise.reject(new Error('worker-evicted')); }, location: { origin: 'https://www.coursera.org', href: 'https://www.coursera.org/learn/x/quiz/q1/a' } });
+  assert.equal(errd.outcome, 'assessment-ai-no-answer');
+});
+
+test('assessmentAi handler: external launch page yields assessment-skipped-lti', async () => {
+  const doc = makeFakeDoc('<form role="form"><button>Launch App</button></form>', 'https://www.coursera.org/learn/x/gradedLti/g1/a');
+  const handlers = createHandlers({
+    sleep: function () { return Promise.resolve(); }, timing: require('../lib/autopilot-timing.js'),
+    answerApplier: require('../lib/answer-applier.js'), questionContext: require('../lib/ai-question-context.js'),
+    courseraDom: { isExternalLaunchPage: function () { return true; }, assessmentRoot: function (d) { return d.body; }, isExcludedNode: function () { return false; } },
+  });
+  const out = await handlers.assessmentAi({ doc: doc, item: { id: 'g1', kind: 'assignment' }, rng: seededRng(1), signal: mkSignal(), behaviorMode: 'fast', aiGenerate: function () { return Promise.resolve({ ok: true, raw: '{}' }); }, location: { origin: 'https://www.coursera.org', href: 'https://www.coursera.org/learn/x/gradedLti/g1/a' } });
+  assert.equal(out.outcome, 'assessment-skipped-lti');
+});
