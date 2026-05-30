@@ -885,3 +885,31 @@ test('applyTextMatches: dot-leading negative "-.5 F" extracts "-.5" (not "5")', 
   // Variant 0 "-.5 F" rejected. Variant 1 "-.5" accepted (negative sign preserved).
   assert.equal(stored, '-.5');
 });
+
+test('findOptionGroups ignores the extension sidebar radios (name=ccp-behavior under #ccp-host-root)', () => {
+  const { findOptionGroups } = require('../lib/answer-matcher.js');
+  const d = dom(
+    '<div id="ccp-host-root"><div class="ccp-host">' +
+      '<input type="radio" name="ccp-behavior" value="a"><input type="radio" name="ccp-behavior" value="b">' +
+    '</div></div>' +
+    '<fieldset><input type="radio" name="q1"><input type="radio" name="q1"></fieldset>'
+  );
+  const groups = findOptionGroups(d.body);
+  // Only the real quiz radio group survives; ccp-behavior is excluded.
+  const names = groups.map(function (g) { return g.name; });
+  assert.ok(names.indexOf('ccp-behavior') === -1, 'ccp-behavior group must be excluded');
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].name, 'q1');
+});
+
+test('findTextInputs ignores the Boost chat composer textarea and the extension paste box', () => {
+  const { findTextInputs } = require('../lib/answer-matcher.js');
+  const d = dom(
+    '<div id="boostai-chat-panel-composer"><textarea placeholder="Ask your question here"></textarea></div>' +
+    '<div class="ccp-host"><textarea placeholder="Paste or type text..."></textarea></div>' +
+    '<textarea id="real-answer"></textarea>'
+  );
+  const inputs = findTextInputs(d.body);
+  assert.equal(inputs.length, 1);
+  assert.equal(inputs[0].el.id, 'real-answer');
+});
