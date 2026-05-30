@@ -166,7 +166,10 @@ test('gemini buildRequest puts the key in the x-goog-api-key header and NOT in t
   assert.equal(req.headers['x-goog-api-key'], 'gem-SECRET-KEY');
   const body = JSON.parse(req.body);
   assert.equal(body.generationConfig.responseMimeType, 'application/json');
-  assert.ok(JSON.stringify(body).indexOf('"q1"') !== -1, 'snapshot must be embedded');
+  // Gemini embeds the snapshot as a JSON-encoded string inside parts[0].text, so
+  // its inner quotes are escaped when the whole body is re-stringified. Assert
+  // against the part text directly (as the other adapter tests do for content).
+  assert.ok(body.contents[0].parts[0].text.indexOf('"q1"') !== -1, 'snapshot must be embedded');
   assert.equal(req.body.indexOf('gem-SECRET-KEY'), -1);
 });
 
@@ -265,7 +268,7 @@ test('D-PROMPT: deepseek-client fallback SYSTEM_PROMPT is byte-identical to the 
   const path = require('path');
   function extractPromptArray(file) {
     const src = fs.readFileSync(path.join(__dirname, '..', 'lib', file), 'utf8');
-    const m = src.match(/var SYSTEM_PROMPT = \[([\s\S]*?)\]\.join\('\n'\);/);
+    const m = src.match(/var SYSTEM_PROMPT = \[([\s\S]*?)\]\.join\('\\n'\);/);
     assert.ok(m, 'SYSTEM_PROMPT array literal must be present in lib/' + file);
     return m[1].replace(/\s+/g, ' ').trim();
   }
