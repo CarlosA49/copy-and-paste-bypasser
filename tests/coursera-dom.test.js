@@ -5,6 +5,8 @@ const { JSDOM } = require('jsdom');
 const {
   parseLearnUrl,
   classifyKind,
+  parseItemAccessibleName,
+  itemStatus,
 } = require('../lib/coursera-dom.js');
 
 function dom(html, url) {
@@ -73,4 +75,52 @@ test('classifyKind cross-checks accessibleName when the URL is ambiguous', () =>
   assert.equal(classifyKind('', 'Graded App Item, Assignment: MATLAB Calculation, Not submitted, 15 min'), 'gradedLti');
   assert.equal(classifyKind('', 'Video, Scripts, Not submitted, 4 min'), 'video');
   assert.equal(classifyKind('', 'Reading, Syllabus, Completed, 10 min'), 'reading');
+});
+
+test('parseItemAccessibleName parses the four-token grammar (no lock reason)', () => {
+  assert.deepEqual(
+    parseItemAccessibleName('Reading, Recommended Textbook, Completed, 10 min'),
+    { kindToken: 'Reading', title: 'Recommended Textbook', status: 'completed', lockReason: null, durationText: '10 min' }
+  );
+  assert.deepEqual(
+    parseItemAccessibleName('Video, Scripts, Not submitted, 4 min'),
+    { kindToken: 'Video', title: 'Scripts', status: 'not-submitted', lockReason: null, durationText: '4 min' }
+  );
+  assert.deepEqual(
+    parseItemAccessibleName('Ungraded Plugin, Completing MATLAB Programming Assignments, Not submitted, 15 min'),
+    { kindToken: 'Ungraded Plugin', title: 'Completing MATLAB Programming Assignments', status: 'not-submitted', lockReason: null, durationText: '15 min' }
+  );
+});
+
+test('parseItemAccessibleName parses the five-token grammar with an optional lock reason', () => {
+  assert.deepEqual(
+    parseItemAccessibleName('Reading, Solution to valid_date, Locked, Complete previous item to unlock, 10 min'),
+    { kindToken: 'Reading', title: 'Solution to valid_date', status: 'locked', lockReason: 'Complete previous item to unlock', durationText: '10 min' }
+  );
+});
+
+test('parseItemAccessibleName keeps a title that itself contains a colon', () => {
+  assert.deepEqual(
+    parseItemAccessibleName('Graded App Item, Assignment: MATLAB Calculation, Not submitted, 15 min'),
+    { kindToken: 'Graded App Item', title: 'Assignment: MATLAB Calculation', status: 'not-submitted', lockReason: null, durationText: '15 min' }
+  );
+});
+
+test('parseItemAccessibleName returns null for empty/garbage input', () => {
+  assert.equal(parseItemAccessibleName(''), null);
+  assert.equal(parseItemAccessibleName(null), null);
+  assert.equal(parseItemAccessibleName('JustOneToken'), null);
+});
+
+test('itemStatus maps a status string to the canonical vocabulary', () => {
+  assert.equal(itemStatus('Reading, Syllabus, Completed, 10 min'), 'completed');
+  assert.equal(itemStatus('Video, Scripts, Not submitted, 4 min'), 'not-submitted');
+  assert.equal(itemStatus('Reading, X, Locked, Complete previous item to unlock, 10 min'), 'locked');
+  assert.equal(itemStatus('Something with no recognizable status'), 'unknown');
+});
+
+test('itemStatus reads an element accessible-name (aria-label) when given a node', () => {
+  const d = dom('<a aria-label="Video, Introduction, Completed, 12 min" href="/learn/matlab/lecture/v1/intro">Intro</a>');
+  const a = d.querySelector('a');
+  assert.equal(itemStatus(a), 'completed');
 });
