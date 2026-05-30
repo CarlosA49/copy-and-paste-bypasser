@@ -388,3 +388,11 @@ test('parseNumberedAnswers: lines containing commas, semicolons, and quotes are 
     assert.equal(out[i].rawAnswer, lines[i], 'line ' + (i + 1) + ' preserved verbatim');
   }
 });
+
+test('numbered-parser: accepts Q100 at the unified ceiling and rejects Q150 above it', () => {
+  const { parseNumberedAnswers } = require('../lib/numbered-parser.js');
+  const got = parseNumberedAnswers('100. Diamagnetism\n150. nope');
+  const nums = got.map(function (p) { return p.questionNumber; });
+  assert.ok(nums.indexOf(100) !== -1, 'Q100 must be accepted at the unified ceiling');
+  assert.ok(nums.indexOf(150) === -1, 'Q150 must be rejected above the unified ceiling');
+});
