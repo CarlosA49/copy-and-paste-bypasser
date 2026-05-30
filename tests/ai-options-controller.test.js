@@ -665,3 +665,53 @@ test('U10-3: options.html provides forward-looking explanatory copy without inve
   assert.ok(/No purchase or balance is available yet\./i.test(html),
     'options.html must disclaim purchase/balance availability');
 });
+
+// === Phase B: provider selection HTML contract ===
+
+test('PB-H1: options.html contains a provider select with data-role="ai-options-provider"', () => {
+  const fs = require('fs'); const path = require('path');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'options.html'), 'utf8');
+  assert.ok(/<select[^>]*data-role="ai-options-provider"|data-role="ai-options-provider"[^>]*>/.test(html),
+    'provider <select> must exist');
+});
+
+test('PB-H2: options.html contains a model input and datalist with data-role="ai-options-model"', () => {
+  const fs = require('fs'); const path = require('path');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'options.html'), 'utf8');
+  assert.ok(/data-role="ai-options-model"/.test(html), 'model input must exist');
+  assert.ok(/<datalist/i.test(html), 'a datalist of suggested models must exist');
+});
+
+test('PB-H3: options.html contains a custom base-URL field and its toggle container', () => {
+  const fs = require('fs'); const path = require('path');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'options.html'), 'utf8');
+  assert.ok(/data-role="ai-options-base-url"/.test(html), 'base-url input must exist');
+  assert.ok(/data-role="ai-options-base-url-row"/.test(html), 'base-url row container must exist');
+});
+
+test('PB-H4: options.html still has NO "DeepSeek" and NO real sk- key after adding provider UI', () => {
+  const fs = require('fs'); const path = require('path');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'options.html'), 'utf8');
+  assert.equal(html.indexOf('DeepSeek'), -1, 'options.html must remain provider-neutral (no "DeepSeek")');
+  assert.equal(html.match(/sk-[A-Za-z0-9_]{16,}/), null, 'no real-looking key may appear');
+});
+
+test('PB-H5: options.html still loads ai-options-controller.js + options.js and has no inline scripts', () => {
+  const fs = require('fs'); const path = require('path');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'options.html'), 'utf8');
+  assert.ok(/src=["']lib\/ai-options-controller\.js["']/.test(html));
+  assert.ok(/src=["']options\.js["']/.test(html));
+  const inlineScripts = html.match(/<script(?![^>]*\bsrc=)[^>]*>[\s\S]*?<\/script>/gi) || [];
+  assert.equal(inlineScripts.length, 0, 'no inline scripts allowed in MV3');
+});
+
+test('PB-H6: options.html loads lib/ai-providers.js (single source of truth for the provider list) before options.js', () => {
+  const fs = require('fs'); const path = require('path');
+  const html = fs.readFileSync(path.join(__dirname, '..', 'options.html'), 'utf8');
+  assert.ok(/<script[^>]*\bsrc=["']lib\/ai-providers\.js["'][^>]*>/.test(html),
+    'options.html must include <script src="lib/ai-providers.js"> so window.ClipboardCleaner.aiProviders is the canonical provider list');
+  const idxProviders = html.indexOf('lib/ai-providers.js');
+  const idxOptions = html.indexOf('"options.js"') !== -1 ? html.indexOf('"options.js"') : html.indexOf("'options.js'");
+  assert.ok(idxProviders !== -1 && idxOptions !== -1 && idxProviders < idxOptions,
+    'lib/ai-providers.js must be loaded before options.js');
+});

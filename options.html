@@ -177,6 +177,19 @@
 
     <section class="byok-section">
       <h2>Use Your Own AI API Key</h2>
+
+      <label class="field-label" for="ai-provider">AI Provider</label>
+      <select id="ai-provider" data-role="ai-options-provider"></select>
+
+      <label class="field-label" for="ai-model">Model</label>
+      <input id="ai-model" data-role="ai-options-model" type="text" list="ai-model-suggestions" autocomplete="off" spellcheck="false" placeholder="Leave blank for the provider default" />
+      <datalist id="ai-model-suggestions"></datalist>
+
+      <div data-role="ai-options-base-url-row" style="display:none;">
+        <label class="field-label" for="ai-base-url">Custom base URL (OpenAI-compatible)</label>
+        <input id="ai-base-url" data-role="ai-options-base-url" type="text" autocomplete="off" spellcheck="false" placeholder="https://your-endpoint.example.com/v1" />
+      </div>
+
       <label class="field-label" for="key">AI API Key</label>
       <div class="input-row">
         <input id="key" data-role="ai-options-key" type="password" autocomplete="off" spellcheck="false" />
@@ -210,6 +223,7 @@
   <footer class="ccp-options-footer">
     <div class="ccp-options-revision" data-role="ccp-ui-revision">UI Revision: —</div>
   </footer>
+  <script src="lib/ai-providers.js"></script>
   <script src="lib/ai-options-controller.js"></script>
   <script src="lib/ui-revision.js"></script>
   <script src="options.js"></script>
