@@ -239,3 +239,21 @@ test('formatDebugReport surfaces a NAVIGATION block summarizing the latest curso
   assert.ok(/rerun\.scheduled/.test(out));
   assert.ok(/rerun\.executed/.test(out));
 });
+
+test('formatDebugReport: redacts AI prompt/snapshot/choice fields but leaves generic value untouched', () => {
+  const snap = { capturedAt: '2026-05-25T00:00:00.000Z', context: { status: 'running' }, events: [] };
+  snap.events.push({ at: 't1', type: 'handler.outcome', details: {
+    handler: 'assessment-ai',
+    prompt: 'SECRET_PROMPT',
+    snapshot: { questions: [{ prompt: 'SECRET_Q' }] },
+    choiceText: 'SECRET_CHOICE',
+    choiceTexts: ['SECRET_A', 'SECRET_B'],
+    value: 42,
+  } });
+  const out = formatDebugReport(snap);
+  ['SECRET_PROMPT', 'SECRET_Q', 'SECRET_CHOICE', 'SECRET_A', 'SECRET_B'].forEach(function (s) {
+    assert.ok(out.indexOf(s) === -1, 'must redact ' + s);
+  });
+  // Generic keys that existing events legitimately emit are NOT redacted.
+  assert.ok(/value=42/.test(out), 'generic value key must NOT be redacted (existing events rely on it)');
+});
