@@ -202,3 +202,98 @@ test('confirmer never throws even when debugRecorder is undefined (no regression
   const ok = await conf.waitForCompletion({ doc: dom, itemId: 'v1', itemKind: 'video', scraper: { findItemCompletionIndicator: function () { return null; } }, timeoutMs: 30, pollIntervalMs: 5 });
   assert.equal(ok, false);
 });
+
+test('waitForCompletion detects completion via the accessibleName status token (courseraDom)', async () => {
+  const { createConfirmer } = require('../lib/completion-confirmer.js');
+  const courseraDom = require('../lib/coursera-dom.js');
+  const { JSDOM } = require('jsdom');
+  const doc = new JSDOM(
+    '<!doctype html><html><body>' +
+      '<a href="/learn/x/lecture/v1/intro" aria-label="Video, Intro, Completed, 2 min">Intro</a>' +
+    '</body></html>',
+    { url: 'https://www.coursera.org/learn/x/lecture/v1/intro' }
+  ).window.document;
+  // No legacy indicator: the green-icon and item-indicator paths return null.
+  const scraper = {
+    findItemCompletionIndicator: function () { return null; },
+    findGreenCompletionIconInRow: function () { return null; },
+  };
+  let t = 0;
+  const confirmer = createConfirmer({
+    sleep: function () { t += 1000; return Promise.resolve(); },
+    nowFn: function () { return t; },
+  });
+  const done = await confirmer.waitForCompletion({
+    doc: doc,
+    itemId: 'v1',
+    itemKind: 'video',
+    scraper: scraper,
+    courseraDom: courseraDom,
+    timeoutMs: 5000,
+    pollIntervalMs: 1000,
+  });
+  assert.equal(done, true);
+});
+
+test('waitForCompletion detects completion via a nav progressbar reaching 100% (courseraDom)', async () => {
+  const { createConfirmer } = require('../lib/completion-confirmer.js');
+  const courseraDom = require('../lib/coursera-dom.js');
+  const { JSDOM } = require('jsdom');
+  const doc = new JSDOM(
+    '<!doctype html><html><body>' +
+      '<a href="/learn/x/lecture/v1/intro" aria-label="Video, Intro, Not submitted, 2 min">Intro</a>' +
+      '<div role="navigation"><div role="progressbar" aria-valuenow="100" aria-valuemax="100"></div></div>' +
+    '</body></html>',
+    { url: 'https://www.coursera.org/learn/x/lecture/v1/intro' }
+  ).window.document;
+  const scraper = {
+    findItemCompletionIndicator: function () { return null; },
+    findGreenCompletionIconInRow: function () { return null; },
+  };
+  let t = 0;
+  const confirmer = createConfirmer({
+    sleep: function () { t += 1000; return Promise.resolve(); },
+    nowFn: function () { return t; },
+  });
+  const done = await confirmer.waitForCompletion({
+    doc: doc,
+    itemId: 'v1',
+    itemKind: 'video',
+    scraper: scraper,
+    courseraDom: courseraDom,
+    timeoutMs: 5000,
+    pollIntervalMs: 1000,
+  });
+  assert.equal(done, true);
+});
+
+test('waitForCompletion still times out when no evidence at all is present', async () => {
+  const { createConfirmer } = require('../lib/completion-confirmer.js');
+  const courseraDom = require('../lib/coursera-dom.js');
+  const { JSDOM } = require('jsdom');
+  const doc = new JSDOM(
+    '<!doctype html><html><body>' +
+      '<a href="/learn/x/lecture/v1/intro" aria-label="Video, Intro, Not submitted, 2 min">Intro</a>' +
+    '</body></html>',
+    { url: 'https://www.coursera.org/learn/x/lecture/v1/intro' }
+  ).window.document;
+  const scraper = {
+    findItemCompletionIndicator: function () { return null; },
+    findGreenCompletionIconInRow: function () { return null; },
+  };
+  let t = 0;
+  const confirmer = createConfirmer({
+    sleep: function () { t += 1000; return Promise.resolve(); },
+    nowFn: function () { return t; },
+  });
+  const done = await confirmer.waitForCompletion({
+    doc: doc,
+    itemId: 'v1',
+    itemKind: 'video',
+    scraper: scraper,
+    courseraDom: courseraDom,
+    timeoutMs: 3000,
+    pollIntervalMs: 1000,
+  });
+  assert.equal(done, false);
+});
