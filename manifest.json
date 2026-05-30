@@ -8,7 +8,13 @@
     "open_in_tab": true
   },
   "permissions": ["storage"],
-  "host_permissions": ["https://api.deepseek.com/*"],
+  "host_permissions": [
+    "https://api.deepseek.com/*",
+    "https://api.openai.com/*",
+    "https://api.anthropic.com/*",
+    "https://generativelanguage.googleapis.com/*"
+  ],
+  "optional_host_permissions": ["https://*/*"],
   "background": {
     "service_worker": "background.js"
   },
