@@ -25,7 +25,7 @@ The user enabled **"Auto-submit quizzes after autofill"** expecting the autopilo
 **Goals**
 1. With `aiAnswerAssessments` on (key gated) **and** `autoSubmitQuizzes` on: open → AI-answer → type free-text → submit → continue, for quizzes/exams **and** peer reviews.
 2. With `aiAnswerAssessments` on and `autoSubmitQuizzes` off: open → AI-answer/fill → **pause for review** (current behavior preserved).
-3. Free-text/numeric/math answers are **typed via the auto-typer**: `Fast` speed in fast mode, `Normal` (unchanged) in human mode. Same for peer-review comments.
+3. **Free-text** answers (textarea / plain contenteditable — what `typing-injector.isEditable` accepts) are **typed via the auto-typer**: `Fast` speed in fast mode, `Normal` (unchanged) in human mode. Same for peer-review comments. Numeric/math/dropdown/single/multiple-choice keep the existing reliable direct-set/click path — char-by-char typing into MathQuill fields is unreliable and would hurt the accuracy goal.
 4. **No API key** (or AI produced no answer) → pause with a clear manual-answer message, and **auto-resume** when the item shows complete (green check), then continue.
 5. Targeted quality wins: **more accurate AI answers** (one retry pass for unmapped questions) and **fewer stuck pauses** (a graded-results completion signal).
 
@@ -88,9 +88,9 @@ New handler outcomes and their classification in `isFailureOutcome` (`lib/module
 
 ### 5.2 Applier `deferText` mode — `lib/answer-applier.js` `applyStructuredAnswers` (:327)
 - Add `options.deferText` (default false → fully backward compatible; manual tab and quiz fallback don't pass it).
-- When `deferText` is true: resolve `single_choice` / `multiple_choice` / `dropdown` synchronously as today, but for text-type items (`math_input`, `numerical`, `input`, `free_text`, `code`) **do not** call `fillTextOnce`. Instead locate the target and push `{ el, value, type, questionNumber }` to a returned `pendingText` array.
-- Return shape becomes `{ summary, results, pendingText }` (existing callers ignore `pendingText`).
-- `summary.filled` continues to count choices/dropdowns; typed-text count is the handler's responsibility (it adds `pendingText.length` after typing).
+- When `deferText` is true: resolve `single_choice` / `multiple_choice` / `dropdown` / `math_input` / `numerical` / `input` / `code` **exactly as today** (direct-set/click — correctness for math/numeric). **Only `free_text`** is deferred: instead of `fillTextOnce(target, val)`, push `{ el: target, value: val, type:'free_text', questionNumber }` to a returned `pendingText` array and record a `status:'deferred-text'` result (not counted in `filled`).
+- Return shape becomes `{ ...existing, pendingText }` (existing callers ignore `pendingText`).
+- `summary.filled` continues to count choices/dropdowns/math; the handler adds `pendingText.length` after typing to compute total filled.
 
 ### 5.3 Typing helper — `lib/item-handlers.js`
 - Add `typeIntoElement(el, value, mode, signal)` mirroring peer-review's `fillComment` (`lib/peer-review.js:162`): instantiate `TypingEngine`, `start({ text, target:el, profile:'Balanced Natural', speed: mode==='fast' ? 'Fast' : 'Normal', onTick → typingInjector.insertOrBackspace(el,event), onDone → resolve })`, dispatch `input`/`change` on completion, reject/resolve cleanly on `signal` abort. Returns a promise.
@@ -100,7 +100,7 @@ New handler outcomes and their classification in `isFailureOutcome` (`lib/module
 Replace the unconditional pause (step 7, `:637`) with:
 1. **Missing-key distinction:** when `aiGenerate` resolves `{ ok:false, reason:'missing-key' }`, return `assessment-ai-needs-key` (instead of the generic `assessment-ai-no-answer`). All other non-ok / no-raw / no-mappable cases stay `assessment-ai-no-answer`.
 2. **Accuracy retry (one pass):** after the validate → permissive chain, if `mappedCount < snapshot.actionableCount`, re-issue `aiGenerate` once for **only the unmapped question subset** (rebuild a sanitized snapshot containing just those questions) and merge any newly-mapped suggestions. Bounded to a single retry; failures are non-fatal (keep what we have).
-3. **Apply + type:** call `answerApplier.applyStructuredAnswers(structured, region, { verbose:false, deferText:true })`. For each `pendingText` entry, `await typeIntoElement(el, value, ctx.behaviorMode, ctx.signal)`. Apply human-mode pre-fill dwell exactly as today (`:631`). `totalFilled = summary.filled + pendingText.length`.
+3. **Apply + type:** call `answerApplier.applyStructuredAnswers(structured, region, { verbose:false, deferText:true })`. For each `pendingText` entry (free_text only), `await typeIntoElement(el, value, ctx.behaviorMode, ctx.signal)`, counting successes. Apply human-mode pre-fill dwell exactly as today (`:631`). `totalFilled = summary.filled + (typed free_text count)`.
 4. **Submit branch:**
    - `ctx.autoSubmitQuizzes && totalFilled > 0`: find submit via `SUBMIT_SELECTORS` (`:510`). Found → click → return `{ outcome:'assessment-ai-submitted', filled: totalFilled }`. Not found → `{ outcome:'assessment-ai-no-submit-button', filled: totalFilled }`.
    - else → `{ outcome:'assessment-ai-answered-paused', filled: totalFilled }` (current behavior).
@@ -119,8 +119,9 @@ Replace the unconditional pause (step 7, `:637`) with:
 - **Install point:** in `runCurrentItem`'s failure-outcome pause path (`:1260-1285`), after persisting `paused` and calling `setAutopilotPaused(true, reasonText)`, if `WATCHER_ARMED_OUTCOMES[outcome.outcome]` (= `{assessment-ai-needs-key, assessment-ai-no-answer, assessment-ai-no-submit-button, peer-review-needs-user}`) → emit the waiting log line and `_armResumeWatcher(item.id)`. The banner text itself comes from `FAILURE_REASON_TEXT` (§4), which already encodes the actionable instruction + auto-resume hint for each of these outcomes.
 - Resume correctness: `resume()` → `runCurrentItem` at same cursor → `alreadyCompleteIndicator` green-check check (`:1125-1127`) sees the now-complete item and advances. No special-case needed.
 
-### 5.7 Completion robustness — `lib/completion-confirmer.js`
-- Add one evidence type: **graded-results visible** — a results/score region (e.g. an element whose accessible text matches `/your grade|grade received|results?/i`) or the submit control having disappeared after an `assessment-ai-submitted`. Helps `assessment-ai-submitted` confirm quickly and reduces `no-completion-indicator` stalls. Reuses the existing 1s poll loop; ordered after the green-icon/status checks so it's a fallback, not a false-positive risk for non-assessment items.
+### 5.7 Completion robustness — `lib/completion-confirmer.js` + `lib/module-autopilot.js` + `lib/page-fallback.js`
+- **Pass `courseraDom` into the confirmer (high-value, low-risk).** The confirmer already supports `accessible-status` + `nav-progressbar` evidence (`:56-88`) but the controller's two `confirmer.waitForCompletion({...})` calls (`module-autopilot.js:1313`, `:1405`) **omit `courseraDom`**, so those checks never run in production. Add `courseraDom: courseraDom` to both call sites. This alone materially reduces post-submit stalls.
+- **Graded-results evidence (conservative):** add `pageFallback.findGradedResultsIndicator(doc)` matching a tight set of submitted/graded banners (e.g. an element whose trimmed accessible text matches `/grade received|your (?:latest )?grade|submission received/i`). In the confirmer loop, check it **only when `itemKind === 'quiz' || itemKind === 'exam'`**, ordered last (fallback) → low false-positive risk. Emits `evidence:'graded-results'`.
 
 ### 5.8 UI copy — `lib/sidebar.js`
 - Update the AI-answer warning note (`data-role="autopilot-ai-answer-warning"`, ~:101) to: *"AI answers can be wrong. With Auto-submit off, answers are filled for your review. With Auto-submit on, the autopilot submits and continues. Without an API key, it pauses and resumes automatically once you complete the item."* No new controls.
@@ -185,7 +186,8 @@ Verification discipline (per project memory): run tests redirected to a file and
 - `lib/item-handlers.js` — `assessmentAi` rewrite (submit/type/needs-key/retry), `typeIntoElement` helper.
 - `lib/answer-applier.js` — `deferText` mode.
 - `lib/peer-review.js` — fast-mode typing, `autoSubmitQuizzes` gating, `peer-review-filled-paused`.
-- `lib/completion-confirmer.js` — graded-results evidence.
+- `lib/completion-confirmer.js` — graded-results evidence; consume `courseraDom`/`itemKind`.
+- `lib/page-fallback.js` — `findGradedResultsIndicator`.
 - `lib/sidebar.js` — warning copy.
 - `tests/*` — new + updated tests across the above.
 
