@@ -916,3 +916,199 @@ test('U10-2: managed-credits mode Generate still fails closed with managed-not-i
   assert.equal(deepseekCalled, false, 'managed mode must not fall through to deepseek');
   assert.equal(managedCalled, true);
 });
+
+// === Phase B: provider-agnostic generation ===
+
+function fakeProviders(map) {
+  return {
+    get: function (id) {
+      if (!map[id]) return null;
+      return { createClient: function () { return { generateAnswers: map[id] }; } };
+    },
+    list: function () { return Object.keys(map).map(function (id) { return { id: id, label: id, models: [], defaultModel: 'm' }; }); },
+  };
+}
+
+test('PB1: generateAnswers resolves the adapter from ccp.ai.provider and calls THAT provider', async () => {
+  const session = fakeStorage(); session._store['ccp.ai.sessionKey'] = 'sk-x';
+  const local = fakeStorage(); local._store['ccp.ai.provider'] = 'openai';
+  let calledProvider = null;
+  const svc = createAiBackgroundService({
+    storageSession: session, storageLocal: local,
+    aiProviders: fakeProviders({
+      deepseek: function () { calledProvider = 'deepseek'; return Promise.resolve({ ok: true, raw: { answers: [] } }); },
+      openai: function () { calledProvider = 'openai'; return Promise.resolve({ ok: true, raw: { answers: [{ question_id: 'q1' }] } }); },
+    }),
+    clientFactory: function () { return fakeClient(function () { calledProvider = 'factory'; return Promise.resolve({ ok: true, raw: {} }); }); },
+  });
+  const res = await callAs(svc, { tab: { id: 1 } }, 'generateAnswers', { snapshot: { page: {}, questions: [], token: 't' } });
+  assert.equal(res.ok, true);
+  assert.equal(calledProvider, 'openai');
+  assert.equal(res.raw.answers[0].question_id, 'q1');
+});
+
+test('PB2: generateAnswers defaults to deepseek when ccp.ai.provider is unset', async () => {
+  const session = fakeStorage(); session._store['ccp.ai.sessionKey'] = 'sk-x';
+  const local = fakeStorage();
+  let calledProvider = null;
+  const svc = createAiBackgroundService({
+    storageSession: session, storageLocal: local,
+    aiProviders: fakeProviders({
+      deepseek: function () { calledProvider = 'deepseek'; return Promise.resolve({ ok: true, raw: { answers: [] } }); },
+      openai: function () { calledProvider = 'openai'; return Promise.resolve({ ok: true, raw: { answers: [] } }); },
+    }),
+    clientFactory: function () { return fakeClient(function () { return Promise.resolve({ ok: true, raw: {} }); }); },
+  });
+  const res = await callAs(svc, { tab: { id: 1 } }, 'generateAnswers', { snapshot: { page: {}, questions: [], token: 't' } });
+  assert.equal(res.ok, true);
+  assert.equal(calledProvider, 'deepseek');
+});
+
+test('PB3: generateAnswers passes the per-provider model from ccp.ai.model.{provider} to createClient', async () => {
+  const session = fakeStorage(); session._store['ccp.ai.sessionKey'] = 'sk-x';
+  const local = fakeStorage();
+  local._store['ccp.ai.provider'] = 'openai';
+  local._store['ccp.ai.model.openai'] = 'gpt-4o';
+  let seenModel = null;
+  const svc = createAiBackgroundService({
+    storageSession: session, storageLocal: local,
+    aiProviders: {
+      get: function (id) {
+        if (id !== 'openai') return null;
+        return { createClient: function (opts) { seenModel = opts.model; return { generateAnswers: function () { return Promise.resolve({ ok: true, raw: { answers: [] } }); } }; } };
+      },
+      list: function () { return []; },
+    },
+    clientFactory: function () { return fakeClient(function () { return Promise.resolve({ ok: true }); }); },
+  });
+  await callAs(svc, { tab: { id: 1 } }, 'generateAnswers', { snapshot: { page: {}, questions: [], token: 't' } });
+  assert.equal(seenModel, 'gpt-4o');
+});
+
+test('PB4: generateAnswers passes ccp.ai.baseUrl to createClient for the custom provider', async () => {
+  const session = fakeStorage(); session._store['ccp.ai.sessionKey'] = 'sk-x';
+  const local = fakeStorage();
+  local._store['ccp.ai.provider'] = 'custom';
+  local._store['ccp.ai.baseUrl'] = 'https://llm.example.com/v1';
+  let seenBase = null;
+  const svc = createAiBackgroundService({
+    storageSession: session, storageLocal: local,
+    aiProviders: {
+      get: function (id) {
+        if (id !== 'custom') return null;
+        return { createClient: function (opts) { seenBase = opts.baseUrl; return { generateAnswers: function () { return Promise.resolve({ ok: true, raw: { answers: [] } }); } }; } };
+      },
+      list: function () { return []; },
+    },
+    clientFactory: function () { return fakeClient(function () { return Promise.resolve({ ok: true }); }); },
+  });
+  await callAs(svc, { tab: { id: 1 } }, 'generateAnswers', { snapshot: { page: {}, questions: [], token: 't' } });
+  assert.equal(seenBase, 'https://llm.example.com/v1');
+});
+
+test('PB5: when no aiProviders dep is injected, generateAnswers falls back to clientFactory (back-compat)', async () => {
+  const session = fakeStorage(); session._store['ccp.ai.sessionKey'] = 'sk-x';
+  let factoryCalled = false;
+  const svc = createAiBackgroundService({
+    storageSession: session, storageLocal: fakeStorage(),
+    clientFactory: function () { return fakeClient(function () { factoryCalled = true; return Promise.resolve({ ok: true, raw: { answers: [] } }); }); },
+  });
+  const res = await callAs(svc, { tab: { id: 1 } }, 'generateAnswers', { snapshot: { page: {}, questions: [], token: 't' } });
+  assert.equal(res.ok, true);
+  assert.equal(factoryCalled, true);
+});
+
+test('PB6: setProvider from authorized options sender persists ccp.ai.provider and broadcasts providerChanged', async () => {
+  const local = fakeStorage();
+  const broadcasts = [];
+  const svc = createAiBackgroundService({
+    storageSession: fakeStorage(), storageLocal: local,
+    aiProviders: fakeProviders({ openai: function () {}, deepseek: function () {} }),
+    clientFactory: function () { return fakeClient(function () {}); },
+    canManageSecrets: function () { return true; },
+    broadcast: function (m) { broadcasts.push(m); },
+  });
+  const res = await callAs(svc, { url: 'chrome-extension://EXT/options.html' }, 'setProvider', { provider: 'openai' });
+  assert.equal(res.ok, true);
+  assert.equal(res.provider, 'openai');
+  assert.equal(local._store['ccp.ai.provider'], 'openai');
+  assert.equal(broadcasts.length, 1);
+  assert.deepEqual(broadcasts[0], { type: 'ccp.ai.providerChanged' });
+});
+
+test('PB7: setProvider persists model and baseUrl when supplied', async () => {
+  const local = fakeStorage();
+  const svc = createAiBackgroundService({
+    storageSession: fakeStorage(), storageLocal: local,
+    aiProviders: fakeProviders({ custom: function () {} }),
+    clientFactory: function () { return fakeClient(function () {}); },
+    canManageSecrets: function () { return true; },
+  });
+  const res = await callAs(svc, { url: 'chrome-extension://EXT/options.html' }, 'setProvider', { provider: 'custom', model: 'my-model', baseUrl: 'https://llm.example.com/v1' });
+  assert.equal(res.ok, true);
+  assert.equal(local._store['ccp.ai.provider'], 'custom');
+  assert.equal(local._store['ccp.ai.model.custom'], 'my-model');
+  assert.equal(local._store['ccp.ai.baseUrl'], 'https://llm.example.com/v1');
+});
+
+test('PB8: setProvider from a content-script sender is REJECTED — no write, no broadcast', async () => {
+  const local = fakeStorage();
+  const broadcasts = [];
+  const svc = createAiBackgroundService({
+    storageSession: fakeStorage(), storageLocal: local,
+    aiProviders: fakeProviders({ openai: function () {} }),
+    clientFactory: function () { return fakeClient(function () {}); },
+    canManageSecrets: strictCanManageSecrets('chrome-extension://EXT/options.html'),
+    broadcast: function (m) { broadcasts.push(m); },
+  });
+  const res = await callAs(svc, { tab: { id: 1 }, url: 'https://www.coursera.org/learn/x' }, 'setProvider', { provider: 'openai' });
+  assert.equal(res.ok, false);
+  assert.equal(res.reason, 'forbidden-sender');
+  assert.equal(local._store['ccp.ai.provider'], undefined);
+  assert.equal(broadcasts.length, 0);
+});
+
+test('PB9: setProvider with an unknown provider id is REFUSED — no write, no broadcast', async () => {
+  const local = fakeStorage();
+  const broadcasts = [];
+  const svc = createAiBackgroundService({
+    storageSession: fakeStorage(), storageLocal: local,
+    aiProviders: fakeProviders({ openai: function () {}, deepseek: function () {} }),
+    clientFactory: function () { return fakeClient(function () {}); },
+    canManageSecrets: function () { return true; },
+    broadcast: function (m) { broadcasts.push(m); },
+  });
+  const res = await callAs(svc, { url: 'chrome-extension://EXT/options.html' }, 'setProvider', { provider: 'nonexistent' });
+  assert.equal(res.ok, false);
+  assert.equal(res.reason, 'invalid-provider');
+  assert.equal(local._store['ccp.ai.provider'], undefined);
+  assert.equal(broadcasts.length, 0);
+});
+
+test('PB10: managed-credits mode still bypasses providers and calls managedClient', async () => {
+  const local = fakeStorage(); local._store['ccp.ai.provider'] = 'openai';
+  let openaiCalled = false; let managedCalled = false;
+  const svc = createAiBackgroundService({
+    storageSession: fakeStorage(), storageLocal: local,
+    aiProviders: fakeProviders({ openai: function () { openaiCalled = true; return Promise.resolve({ ok: true }); } }),
+    clientFactory: function () { return fakeClient(function () {}); },
+    managedClient: { generateAnswers: function () { managedCalled = true; return Promise.resolve({ ok: false, reason: 'managed-not-implemented' }); } },
+    accessModeProvider: function (cb) { cb('managed-credits'); },
+  });
+  const res = await callAs(svc, { tab: { id: 1 } }, 'generateAnswers', { snapshot: { page: {}, questions: [], token: 't' } });
+  assert.equal(res.reason, 'managed-not-implemented');
+  assert.equal(openaiCalled, false);
+  assert.equal(managedCalled, true);
+});
+
+test('PB11: generated result never contains the stored key', async () => {
+  const session = fakeStorage(); session._store['ccp.ai.sessionKey'] = 'sk-LEAK-PB11';
+  const local = fakeStorage(); local._store['ccp.ai.provider'] = 'openai';
+  const svc = createAiBackgroundService({
+    storageSession: session, storageLocal: local,
+    aiProviders: fakeProviders({ openai: function (snap, key) { return Promise.resolve({ ok: true, raw: { answers: [] } }); } }),
+    clientFactory: function () { return fakeClient(function () {}); },
+  });
+  const res = await callAs(svc, { tab: { id: 1 } }, 'generateAnswers', { snapshot: { page: {}, questions: [], token: 't' } });
+  assert.equal(JSON.stringify(res).indexOf('sk-LEAK-PB11'), -1);
+});
