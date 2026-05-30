@@ -373,6 +373,20 @@ test('GROUND TRUTH (extraction): contamination nodes are excluded while real out
   assert.equal(links[0].getAttribute('href'), '/learn/matlab/lecture/cp1/course-preview');
 });
 
+test('parseItemAccessibleName matches the status as a WHOLE token, not a status word inside the title', () => {
+  // Regression (code-quality review): a title token that merely CONTAINS a status
+  // word ("Completed solutions", "Locked Room Mystery") must not be taken as the
+  // status — the status occupies its own comma-token in the grammar.
+  assert.deepEqual(
+    parseItemAccessibleName('Reading, Completed solutions, Not submitted, 5 min'),
+    { kindToken: 'Reading', title: 'Completed solutions', status: 'not-submitted', lockReason: null, durationText: '5 min' }
+  );
+  assert.deepEqual(
+    parseItemAccessibleName('Video, Locked Room Mystery, Completed, 8 min'),
+    { kindToken: 'Video', title: 'Locked Room Mystery', status: 'completed', lockReason: null, durationText: '8 min' }
+  );
+});
+
 const fs = require('node:fs');
 const path = require('node:path');
 
