@@ -277,3 +277,17 @@ test('D-PROMPT: deepseek-client fallback SYSTEM_PROMPT is byte-identical to the 
   assert.equal(clientPrompt, providersPrompt,
     'deepseek-client fallback SYSTEM_PROMPT has drifted from ai-providers SYSTEM_PROMPT — keep them byte-identical');
 });
+
+test('D-DRIFT: options.js provider backstop ids equal the ai-providers registry ids', () => {
+  const fs = require('fs');
+  const path = require('path');
+  const src = fs.readFileSync(path.join(__dirname, '..', 'options.js'), 'utf8');
+  var backstopIds = [];
+  var re = /\{\s*id:\s*'([a-z]+)'/g;
+  var m;
+  while ((m = re.exec(src)) !== null) { backstopIds.push(m[1]); }
+  assert.ok(backstopIds.length >= 5, 'expected the 5-provider backstop array in options.js; found: ' + JSON.stringify(backstopIds));
+  var registryIds = aiProviders.list().map(function (p) { return p.id; }).sort();
+  assert.deepEqual(backstopIds.slice().sort(), registryIds,
+    'options.js backstop provider ids have drifted from lib/ai-providers.js — keep them in sync');
+});
