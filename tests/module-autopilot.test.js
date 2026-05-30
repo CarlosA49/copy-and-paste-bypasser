@@ -6755,3 +6755,156 @@ test('isFailureOutcome: AI pause tokens pause; skip tokens advance; legacy token
   assert.equal(isFailureOutcome({ outcome: 'quiz-filled-paused-for-review' }), true);
   assert.equal(isFailureOutcome({ outcome: 'pause-needed-no-answer' }), true);
 });
+
+test('buildOrderedQueue: un-blocks answerable assessments only when aiAnswerAssessments is on', () => {
+  const { buildOrderedQueue } = require('../lib/module-autopilot.js');
+  const scraperMod = require('../lib/module-scraper.js');
+  // A leading non-blocked item (video) keeps the queue non-empty so the blocked
+  // assessments are retained after it (buildOrderedQueue returns [] when EVERY
+  // item is blocked — it slices from the first safe item).
+  const rawItems = [
+    { id: 'v0', kind: 'video', url: '/learn/x/lecture/v0/intro', title: 'Intro' },
+    { id: 'q1', kind: 'quiz', url: '/learn/x/quiz/q1/a', title: 'Quiz One' },
+    { id: 'p1', kind: 'programming', url: '/learn/x/programming/p1/a', title: 'Lab One' },
+  ];
+  // Toggle OFF: both blocked (today's behavior, preserved).
+  const off = buildOrderedQueue(scraperMod, rawItems, null, { aiAnswerAssessments: false });
+  const offQ = off.queue.find(function (it) { return it.id === 'q1'; });
+  assert.ok(offQ && offQ.blocked === true, 'quiz blocked when toggle off');
+  // Toggle ON: quiz un-blocked + tagged for AI; programming stays blocked.
+  const on = buildOrderedQueue(scraperMod, rawItems, null, { aiAnswerAssessments: true });
+  const q = on.queue.find(function (it) { return it.id === 'q1'; });
+  const p = on.queue.find(function (it) { return it.id === 'p1'; });
+  assert.ok(q && !q.blocked, 'quiz un-blocked when toggle on');
+  assert.equal(q.aiAnswerable, true);
+  assert.ok(p && p.blocked, 'programming stays blocked even when toggle on');
+});
+
+test('start/_doStart: a freshly started run with the AI toggle ON un-blocks an answerable quiz', async () => {
+  const QUIZ_HTML =
+    '<div data-testid="lesson-collection">' +
+      '<a href="/learn/x/quiz/q1/intro-quiz">Quiz One</a>' +
+    '</div>';
+  const j = makePage(QUIZ_HTML, 'https://www.coursera.org/learn/x/home/week/1');
+  const storage = fakeStorage();
+  // Persist the toggle BEFORE start so state.load (read on the _doStart path)
+  // sees aiAnswerAssessments:true. (Status stays 'idle'/runId null so activateRun
+  // is allowed to proceed on start.)
+  const seed = stateMod.defaults();
+  seed.settings.aiAnswerAssessments = true;
+  await new Promise(function (r) { storage.set({ [stateMod.RUN_KEY]: seed }, r); });
+  const handlers = mkFakeHandlers();
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    nowFn: function () { return 1_000_000; }, tabKey: 'tab-1', rng: seededRng(1),
+    navigate: function () { return Promise.resolve(); },
+    aiGenerate: function () { return Promise.resolve({ ok: true, raw: '{"answers":[]}' }); },
+    sidebar: { setAutopilotStatus: function () {}, appendAutopilotLog: function () {}, setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; } },
+  });
+  await ap.start();
+  const got = await new Promise(function (r) { storage.get([stateMod.RUN_KEY], function (g) { r(g[stateMod.RUN_KEY]); }); });
+  const q = (got.queue || []).find(function (it) { return it.id === 'q1'; });
+  assert.ok(q, 'quiz must be present in the activated queue');
+  assert.ok(!q.blocked, 'quiz must be un-blocked on a fresh start with the toggle on');
+  assert.equal(q.aiAnswerable, true, 'quiz must be tagged aiAnswerable on the _doStart path');
+});
+
+test('runCurrentItem: routes an aiAnswerable quiz to the assessmentAi handler with ctx.aiGenerate', async () => {
+  const QUIZ_HTML =
+    '<div data-testid="lesson-collection">' +
+      '<a href="/learn/x/quiz/q1/intro-quiz">Quiz One</a>' +
+    '</div>';
+  const j = makePage(QUIZ_HTML, 'https://www.coursera.org/learn/x/quiz/q1/intro-quiz');
+  const storage = fakeStorage();
+  const calls = [];
+  let sawAiGenerate = false;
+  const handlers = {
+    video: function () { return Promise.resolve({ outcome: 'video-done' }); },
+    reading: function () { return Promise.resolve({ outcome: 'reading-done' }); },
+    discussion: function () { return Promise.resolve({ outcome: 'discussion-posted' }); },
+    fallback: function (ctx) { calls.push('fallback'); return Promise.resolve({ outcome: 'quiz-filled-paused-for-review' }); },
+    assessmentAi: function (ctx) { calls.push('assessmentAi'); sawAiGenerate = (typeof ctx.aiGenerate === 'function'); return Promise.resolve({ outcome: 'assessment-ai-answered-paused' }); },
+  };
+  const ap = createAutopilot({
+    document: j.window.document, window: j.window, storage: storage, handlers: handlers,
+    nowFn: function () { return 1_000_000; }, tabKey: 'tab-1', rng: seededRng(1),
+    navigate: function () { return Promise.resolve(); },
+    aiGenerate: function () { return Promise.resolve({ ok: true, raw: '{"answers":[]}' }); },
+    sidebar: { setAutopilotStatus: function () {}, appendAutopilotLog: function () {}, setAutopilotPaused: function () {}, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; } },
+  });
+  // Seed running state with an aiAnswerable quiz so handlerForKind routes to assessmentAi.
+  const d = stateMod.defaults();
+  d.status = 'running'; d.courseId = 'x'; d.ownerTabKey = 'tab-1'; d.runId = 'r1';
+  d.settings.aiAnswerAssessments = true;
+  d.queue = [{ id: 'q1', kind: 'quiz', url: '/learn/x/quiz/q1/intro-quiz', title: 'Quiz One', aiAnswerable: true }];
+  d.cursor = 0;
+  await new Promise(function (r) { storage.set({ [stateMod.RUN_KEY]: d }, r); });
+  await ap.bootIfRunning();
+  assert.ok(calls.indexOf('assessmentAi') !== -1, 'assessmentAi handler must run for an aiAnswerable quiz');
+  assert.equal(sawAiGenerate, true, 'ctx.aiGenerate must be provided');
+});
+
+test('runCurrentItem: AI-answered pause logs filled count + "paused for review"; LTI skip logs reason and advances', async () => {
+  // --- Part 1: answered → pause → run-log line with count ---
+  const j1 = makePage('<div data-testid="lesson-collection"><a href="/learn/x/quiz/q1/intro-quiz">Quiz One</a></div>', 'https://www.coursera.org/learn/x/quiz/q1/intro-quiz');
+  const storage1 = fakeStorage();
+  const logs1 = [];
+  const handlers1 = {
+    video: function () { return Promise.resolve({ outcome: 'video-done' }); },
+    reading: function () { return Promise.resolve({ outcome: 'reading-done' }); },
+    discussion: function () { return Promise.resolve({ outcome: 'discussion-posted' }); },
+    fallback: function () { return Promise.resolve({ outcome: 'quiz-filled-paused-for-review' }); },
+    assessmentAi: function () { return Promise.resolve({ outcome: 'assessment-ai-answered-paused', filled: 3 }); },
+  };
+  let paused1 = false;
+  const ap1 = createAutopilot({
+    document: j1.window.document, window: j1.window, storage: storage1, handlers: handlers1,
+    nowFn: function () { return 1_000_000; }, tabKey: 'tab-1', rng: seededRng(1),
+    navigate: function () { return Promise.resolve(); },
+    aiGenerate: function () { return Promise.resolve({ ok: true, raw: '{}' }); },
+    sidebar: { setAutopilotStatus: function () {}, appendAutopilotLog: function (s) { logs1.push(s); }, setAutopilotPaused: function () { paused1 = true; }, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; } },
+  });
+  const d1 = stateMod.defaults();
+  d1.status = 'running'; d1.courseId = 'x'; d1.ownerTabKey = 'tab-1'; d1.runId = 'r1';
+  d1.settings.aiAnswerAssessments = true;
+  d1.queue = [{ id: 'q1', kind: 'quiz', url: '/learn/x/quiz/q1/intro-quiz', title: 'Quiz One', aiAnswerable: true }];
+  d1.cursor = 0;
+  await new Promise(function (r) { storage1.set({ [stateMod.RUN_KEY]: d1 }, r); });
+  await ap1.bootIfRunning();
+  assert.equal(paused1, true, 'AI-answered outcome must PAUSE the run');
+  assert.ok(logs1.some(function (s) { return /AI/i.test(s) && /3/.test(s) && /paused for review/i.test(s); }),
+    'must log a run line with the filled count (3) and "paused for review"');
+
+  // --- Part 2: LTI skip → log reason → advance (do not pause) ---
+  const j2 = makePage('<div data-testid="lesson-collection"><a href="/learn/x/gradedLti/g1/launch">Graded App</a><a href="/learn/x/lecture/v2/two">Lecture Two</a></div>', 'https://www.coursera.org/learn/x/gradedLti/g1/launch');
+  const storage2 = fakeStorage();
+  const logs2 = [];
+  let paused2 = false;
+  const handlers2 = {
+    video: function () { return Promise.resolve({ outcome: 'video-done' }); },
+    reading: function () { return Promise.resolve({ outcome: 'reading-done' }); },
+    discussion: function () { return Promise.resolve({ outcome: 'discussion-posted' }); },
+    fallback: function () { return Promise.resolve({ outcome: 'quiz-filled-paused-for-review' }); },
+    assessmentAi: function () { return Promise.resolve({ outcome: 'assessment-skipped-lti' }); },
+  };
+  const ap2 = createAutopilot({
+    document: j2.window.document, window: j2.window, storage: storage2, handlers: handlers2,
+    nowFn: function () { return 1_000_000; }, tabKey: 'tab-1', rng: seededRng(1),
+    navigate: function () { return Promise.resolve(); },
+    aiGenerate: function () { return Promise.resolve({ ok: true, raw: '{}' }); },
+    sidebar: { setAutopilotStatus: function () {}, appendAutopilotLog: function (s) { logs2.push(s); }, setAutopilotPaused: function () { paused2 = true; }, setAutopilotButtonsRunning: function () {}, getAnswerText: function () { return ''; } },
+  });
+  const d2 = stateMod.defaults();
+  d2.status = 'running'; d2.courseId = 'x'; d2.ownerTabKey = 'tab-1'; d2.runId = 'r1';
+  d2.settings.aiAnswerAssessments = true;
+  d2.queue = [
+    { id: 'g1', kind: 'quiz', url: '/learn/x/gradedLti/g1/launch', title: 'Graded App', aiAnswerable: true },
+    { id: 'v2', kind: 'video', url: '/learn/x/lecture/v2/two', title: 'Lecture Two' },
+  ];
+  d2.cursor = 0;
+  await new Promise(function (r) { storage2.set({ [stateMod.RUN_KEY]: d2 }, r); });
+  await ap2.bootIfRunning();
+  assert.equal(paused2, false, 'a skip outcome must NOT pause the run');
+  assert.ok(logs2.some(function (s) { return /skip/i.test(s) && /(lti|external|app)/i.test(s); }),
+    'must log a skip line with the LTI/external reason');
+});
