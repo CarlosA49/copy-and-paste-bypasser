@@ -155,3 +155,42 @@ test('anthropic createClient end-to-end never leaks the key into body or return'
   assert.equal(String(f.calls[0].init.body || '').indexOf('sk-ANT-SECRET'), -1);
   assert.equal(f.calls[0].init.headers['x-api-key'], 'sk-ANT-SECRET');
 });
+
+test('gemini buildRequest puts the key in the x-goog-api-key header and NOT in the URL query', () => {
+  const a = aiProviders.get('gemini');
+  const req = a.buildRequest(SNAP, 'gem-SECRET-KEY', { model: 'gemini-1.5-flash' });
+  assert.ok(req.url.indexOf('generativelanguage.googleapis.com') !== -1);
+  assert.ok(req.url.indexOf('gemini-1.5-flash') !== -1);
+  assert.equal(req.url.indexOf('gem-SECRET-KEY'), -1, 'key must NOT appear in the URL (no ?key=)');
+  assert.equal(req.url.indexOf('key='), -1, 'no key= query param allowed');
+  assert.equal(req.headers['x-goog-api-key'], 'gem-SECRET-KEY');
+  const body = JSON.parse(req.body);
+  assert.equal(body.generationConfig.responseMimeType, 'application/json');
+  assert.ok(JSON.stringify(body).indexOf('"q1"') !== -1, 'snapshot must be embedded');
+  assert.equal(req.body.indexOf('gem-SECRET-KEY'), -1);
+});
+
+test('gemini parseResponse reads candidates[0].content.parts[0].text into raw.answers', () => {
+  const a = aiProviders.get('gemini');
+  const r = a.parseResponse({ candidates: [{ content: { parts: [{ text: JSON.stringify({ answers: [{ question_id: 'q1' }] }) }] } }] });
+  assert.equal(r.ok, true);
+  assert.equal(r.raw.answers[0].question_id, 'q1');
+});
+
+test('gemini parseResponse returns {ok:true, raw:{_raw}} for non-JSON parts text', () => {
+  const a = aiProviders.get('gemini');
+  const r = a.parseResponse({ candidates: [{ content: { parts: [{ text: 'free text' }] } }] });
+  assert.equal(r.ok, true);
+  assert.equal(r.raw._raw, 'free text');
+});
+
+test('gemini createClient end-to-end never leaks the key into URL, body, or return', async () => {
+  const f = makeFetch(function () { return makeResponse(200, { candidates: [{ content: { parts: [{ text: '{"answers":[]}' }] } }] }); });
+  const c = aiProviders.get('gemini').createClient({ fetchFn: f });
+  const r = await c.generateAnswers(SNAP, 'gem-SECRET-KEY');
+  assert.equal(r.ok, true);
+  assert.equal(JSON.stringify(r).indexOf('gem-SECRET-KEY'), -1);
+  assert.equal(String(f.calls[0].url || '').indexOf('gem-SECRET-KEY'), -1);
+  assert.equal(String(f.calls[0].init.body || '').indexOf('gem-SECRET-KEY'), -1);
+  assert.equal(f.calls[0].init.headers['x-goog-api-key'], 'gem-SECRET-KEY');
+});
