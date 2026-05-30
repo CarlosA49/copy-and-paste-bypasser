@@ -139,6 +139,8 @@
       typingInjector: a.typingInjector,
       answerApplier: a.answerApplier || null,
       pageFallback: a.pageFallback || null,
+      peerReview: a.peerReview || null,
+      peerReviewReplies: a.peerReviewReplies || null,
       questionContext: a.aiQuestionContext || null,
       validator: a.aiAnswerValidator || null,
       permissive: a.aiAnswerPermissive || null,

@@ -47,6 +47,8 @@
         "lib/autopilot-messenger.js",
         "lib/module-scraper.js",
         "lib/page-fallback.js",
+        "lib/peer-review-replies.js",
+        "lib/peer-review.js",
         "lib/item-handlers.js",
         "lib/completion-confirmer.js",
         "lib/module-autopilot.js",
