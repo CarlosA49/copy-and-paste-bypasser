@@ -1221,7 +1221,7 @@ function aiAssessmentDeps(captured) {
 test('assessmentAi: autoSubmit on + free_text typed via engine (Fast in fast mode) + submit clicked', async () => {
   const doc = makeFakeDoc(
     '<div data-testid="cml-question-1"><div>Question 1</div><textarea id="a1"></textarea></div>' +
-    '<button type="submit">Submit</button>',
+    '<div data-testid="quiz"><button type="submit">Submit</button></div>',
     'https://www.coursera.org/learn/x/quiz/q1/a');
   const captured = [];
   const handlers = createHandlers(aiAssessmentDeps(captured));
