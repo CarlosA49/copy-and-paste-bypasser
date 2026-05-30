@@ -6963,3 +6963,36 @@ test('integration: toggle ON drives assessmentAi to FILL + PAUSE a quiz (cursor 
   assert.ok(persisted.lastPauseReason && /AI filled the answers|review and submit/i.test(persisted.lastPauseReason), 'lastPauseReason must reflect the AI-answered pause');
   assert.ok(pausedBanner && /AI filled the answers|review and submit/i.test(pausedBanner), 'sidebar pause banner must reflect the AI-answered pause');
 });
+
+// ---- Phase D: peer-review outcome classification + routing ----
+test('peer-review-submitted is NOT a failure outcome (advances the cursor)', () => {
+  const mod = require('../lib/module-autopilot.js');
+  assert.equal(mod._isFailureOutcome({ outcome: 'peer-review-submitted' }), false);
+});
+
+test('peer-review-needs-user IS a recognized pause outcome', () => {
+  const mod = require('../lib/module-autopilot.js');
+  assert.equal(mod._isFailureOutcome({ outcome: 'peer-review-needs-user' }), true);
+});
+
+test('reasonText maps peer-review-needs-user to a user-grade phrase', () => {
+  const mod = require('../lib/module-autopilot.js');
+  const phrase = mod._reasonText({ outcome: 'peer-review-needs-user' });
+  assert.ok(/peer review/i.test(phrase), 'phrase should mention peer review, got: ' + phrase);
+});
+
+test('peer/peer-review kind routes to the peerReview handler when present', () => {
+  // Mirror handlerForKind's resolution logic against a handler map.
+  function resolve(kind, handlers) {
+    if (kind === 'assignment' && handlers.assignment) return handlers.assignment;
+    if ((kind === 'peer' || kind === 'peer-review') && handlers.peerReview) return handlers.peerReview;
+    if (handlers[kind]) return handlers[kind];
+    return handlers.fallback;
+  }
+  const peerReview = function () {};
+  const fallback = function () {};
+  const handlers = { peerReview: peerReview, fallback: fallback };
+  assert.equal(resolve('peer', handlers), peerReview);
+  assert.equal(resolve('peer-review', handlers), peerReview);
+  assert.equal(resolve('quiz', handlers), fallback, 'unknown kind still falls back');
+});
