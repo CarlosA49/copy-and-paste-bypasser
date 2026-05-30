@@ -5,6 +5,7 @@ const stateModule = require('../lib/autopilot-state.js');
 const {
   createState,
   defaults,
+  migrateSettings,
   HEARTBEAT_TTL_MS,
   RUN_KEY,
   SETTINGS_KEY,
@@ -771,4 +772,13 @@ test('PHASE 11 A4: old realm holds handler-error / handler-outcome pause write â
   const after = deferred._store[RUN_KEY];
   assert.equal(after && after.status, 'running', 'replacement run must remain running');
   assert.equal(after && after.runId, 'run-new', 'replacement runId must be authoritative');
+});
+
+test('defaults(): includes aiAnswerAssessments false and migration leaves it false', () => {
+  const d = defaults();
+  assert.equal(d.settings.aiAnswerAssessments, false);
+  // Existing stored state without the field migrates to false (not undefined/true).
+  const out = migrateSettings({ pauseOnUserInput: false, autoSubmitQuizzes: false, behaviorMode: 'fast', runScope: 'module' });
+  const merged = Object.assign({}, defaults().settings, out.settings);
+  assert.equal(merged.aiAnswerAssessments, false);
 });
