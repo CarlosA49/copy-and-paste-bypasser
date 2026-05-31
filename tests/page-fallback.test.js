@@ -142,11 +142,15 @@ test('findGoToNextItemButton still matches the legacy whole-string "Continue" wh
   assert.equal(btn.textContent, 'Continue');
 });
 
-test('findGradedResultsIndicator: matches a graded/submitted banner, ignores plain text', () => {
+test('findGradedResultsIndicator: matches post-submission banners; ignores prior-attempt grade + prose', () => {
   const pf = require('../lib/page-fallback.js');
   const { JSDOM } = require('jsdom');
-  const yes = new JSDOM('<!doctype html><body><h2>Grade received</h2></body>').window.document;
-  assert.ok(pf.findGradedResultsIndicator(yes));
-  const no = new JSDOM('<!doctype html><body><p>Please grade your work carefully.</p></body>').window.document;
-  assert.equal(pf.findGradedResultsIndicator(no), null);
+  const d = function (html) { return new JSDOM('<!doctype html><body>' + html + '</body>').window.document; };
+  assert.ok(pf.findGradedResultsIndicator(d('<h2>Grade received</h2>')), 'grade received matches');
+  assert.ok(pf.findGradedResultsIndicator(d('<div role="status">Submission received</div>')), 'submission received matches');
+  // Must NOT match: prior-attempt grade banner shown on a retake page before submit.
+  assert.equal(pf.findGradedResultsIndicator(d('<h2>Your grade: 80%</h2>')), null, 'prior-attempt grade must NOT confirm');
+  assert.equal(pf.findGradedResultsIndicator(d('<div data-testid="gradeDisplay">Your grade: 80%</div>')), null, 'grade panel must NOT confirm');
+  // Must NOT match: prose.
+  assert.equal(pf.findGradedResultsIndicator(d('<p>Please grade your work carefully.</p>')), null, 'prose must NOT match');
 });
