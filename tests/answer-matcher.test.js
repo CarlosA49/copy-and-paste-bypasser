@@ -885,3 +885,56 @@ test('applyTextMatches: dot-leading negative "-.5 F" extracts "-.5" (not "5")', 
   // Variant 0 "-.5 F" rejected. Variant 1 "-.5" accepted (negative sign preserved).
   assert.equal(stored, '-.5');
 });
+
+test('findOptionGroups ignores the extension sidebar radios (name=ccp-behavior under #ccp-host-root)', () => {
+  const { findOptionGroups } = require('../lib/answer-matcher.js');
+  const d = dom(
+    '<div id="ccp-host-root"><div class="ccp-host">' +
+      '<input type="radio" name="ccp-behavior" value="a"><input type="radio" name="ccp-behavior" value="b">' +
+    '</div></div>' +
+    '<fieldset><input type="radio" name="q1"><input type="radio" name="q1"></fieldset>'
+  );
+  const groups = findOptionGroups(d.body);
+  // Only the real quiz radio group survives; ccp-behavior is excluded.
+  const names = groups.map(function (g) { return g.name; });
+  assert.ok(names.indexOf('ccp-behavior') === -1, 'ccp-behavior group must be excluded');
+  assert.equal(groups.length, 1);
+  assert.equal(groups[0].name, 'q1');
+});
+
+test('findTextInputs ignores the Boost chat composer textarea and the extension paste box', () => {
+  const { findTextInputs } = require('../lib/answer-matcher.js');
+  const d = dom(
+    '<div id="boostai-chat-panel-composer"><textarea placeholder="Ask your question here"></textarea></div>' +
+    '<div class="ccp-host"><textarea placeholder="Paste or type text..."></textarea></div>' +
+    '<textarea id="real-answer"></textarea>'
+  );
+  const inputs = findTextInputs(d.body);
+  assert.equal(inputs.length, 1);
+  assert.equal(inputs[0].el.id, 'real-answer');
+});
+
+test('findTextInputs: discovers a .mq-editable-field MathQuill target', () => {
+  const j = new JSDOM('<!doctype html><html><body>' +
+    '<span class="mq-editable-field" contenteditable="true"></span>' +
+    '</body></html>', { url: 'https://www.coursera.org/learn/x/quiz/q/a' });
+  const doc = j.window.document;
+  const found = findTextInputs(doc.body);
+  assert.equal(found.length, 1, 'MathQuill field must be discovered');
+  assert.equal(found[0].kind, 'mathquill');
+});
+
+test('findOptionGroups: label-wrapped cds- options without role=radio are discovered as a group', () => {
+  const j = new JSDOM('<!doctype html><html><body>' +
+    '<div data-testid="cml-question-1">' +
+      '<label class="cds-checkboxAndRadio-label"><div class="cds-1">Alpha</div></label>' +
+      '<label class="cds-checkboxAndRadio-label"><div class="cds-1">Beta</div></label>' +
+      '<label class="cds-checkboxAndRadio-label"><div class="cds-1">Gamma</div></label>' +
+    '</div>' +
+    '</body></html>', { url: 'https://www.coursera.org/learn/x/quiz/q/a' });
+  const doc = j.window.document;
+  const groups = findOptionGroups(doc.querySelector('[data-testid="cml-question-1"]'));
+  assert.equal(groups.length, 1, 'one label-wrapped option group');
+  assert.equal(groups[0].options.length, 3);
+  assert.deepEqual(groups[0].options.map(function (o) { return o.text; }), ['Alpha', 'Beta', 'Gamma']);
+});

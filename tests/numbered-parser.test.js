@@ -1,0 +1,398 @@
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const { parseNumberedAnswers, parseOrderedLines } = require('../lib/numbered-parser.js');
+const numberedParser = require('../lib/numbered-parser.js');
+
+test('parses simple numbered list', () => {
+  const r = parseNumberedAnswers('1. 0.0539\n2. 2*epsilon_o*E_o/r\n3. 0');
+  assert.deepEqual(r, [
+    { questionNumber: 1, rawAnswer: '0.0539' },
+    { questionNumber: 2, rawAnswer: '2*epsilon_o*E_o/r' },
+    { questionNumber: 3, rawAnswer: '0' },
+  ]);
+});
+
+test('parses bold markdown numbered list', () => {
+  const r = parseNumberedAnswers('**1.** 0.0539\n**2.** 2*epsilon_o*E_o/r');
+  assert.equal(r.length, 2);
+  assert.equal(r[0].questionNumber, 1);
+  assert.equal(r[0].rawAnswer, '0.0539');
+  assert.equal(r[1].questionNumber, 2);
+  assert.equal(r[1].rawAnswer, '2*epsilon_o*E_o/r');
+});
+
+test('parses JSON answers shape', () => {
+  const r = parseNumberedAnswers(JSON.stringify({
+    answers: [
+      { question_id: '1', answer: '0.0539' },
+      { question_id: '2', answer: '2*epsilon_o*E_o/r' },
+    ]
+  }));
+  assert.equal(r.length, 2);
+  assert.equal(r[1].rawAnswer, '2*epsilon_o*E_o/r');
+});
+
+test('parses JSON inside markdown fence', () => {
+  const raw = 'Here you go:\n```json\n{"answers":[{"question_id":"1","answer":"0.0539"},{"question_id":"2","answer":"x"}]}\n```\nDone.';
+  const r = parseNumberedAnswers(raw);
+  assert.equal(r.length, 2);
+  assert.equal(r[0].rawAnswer, '0.0539');
+});
+
+test('parses "Question N:" form', () => {
+  const r = parseNumberedAnswers('Question 1: 0.0539\nQuestion 2: 2*epsilon_o*E_o/r');
+  assert.equal(r.length, 2);
+  assert.equal(r[1].questionNumber, 2);
+});
+
+test('handles Windows line endings and blank lines', () => {
+  const r = parseNumberedAnswers('1. A\r\n\r\n2. B\r\n');
+  assert.deepEqual(r, [
+    { questionNumber: 1, rawAnswer: 'A' },
+    { questionNumber: 2, rawAnswer: 'B' },
+  ]);
+});
+
+test('the exact 11-answer real-world failure case', () => {
+  const raw =
+    '1. 0.0539 \n' +
+    '2. (2epsilon_oE_o/r)\n' +
+    '3. 0\n' +
+    '4. (-2k)\n' +
+    '5. 0\n' +
+    '6. 15058.7876 V\n' +
+    '7. (3.7647\\times10^5) N/C\n' +
+    '8. 8.0000 μC/m²\n' +
+    '9. (3.9789\\times10^{-5}) C/m²\n' +
+    '10. Diamagnetism\n' +
+    '11. 300 m';
+  const r = parseNumberedAnswers(raw);
+  assert.equal(r.length, 11);
+  // Raw verbatim — normalisation belongs to the applier.
+  assert.equal(r[0].rawAnswer, '0.0539');
+  assert.equal(r[1].rawAnswer, '(2epsilon_oE_o/r)');
+  assert.equal(r[3].rawAnswer, '(-2k)');
+  assert.equal(r[6].rawAnswer, '(3.7647\\times10^5) N/C');
+  assert.equal(r[8].rawAnswer, '(3.9789\\times10^{-5}) C/m²');
+  assert.equal(r[9].rawAnswer, 'Diamagnetism');
+  assert.equal(r[10].rawAnswer, '300 m');
+});
+
+test('dedupes by questionNumber, first occurrence wins', () => {
+  const r = parseNumberedAnswers('1. A\n1. B\n2. C');
+  assert.equal(r.length, 2);
+  assert.equal(r[0].rawAnswer, 'A');
+  assert.equal(r[1].rawAnswer, 'C');
+});
+
+test('returns [] for empty / non-string', () => {
+  assert.deepEqual(parseNumberedAnswers(''), []);
+  assert.deepEqual(parseNumberedAnswers(null), []);
+});
+
+test('answers containing commas, parens, and operators are preserved', () => {
+  const r = parseNumberedAnswers('1. (a+b)/c\n2. 1, 2, 3');
+  assert.equal(r[0].rawAnswer, '(a+b)/c');
+  assert.equal(r[1].rawAnswer, '1, 2, 3');
+});
+
+test('skips prose lines around list', () => {
+  const r = parseNumberedAnswers(
+    'Here are the answers:\n1. 0.0539\n2. 0\nLet me know if you need clarification.'
+  );
+  assert.equal(r.length, 2);
+});
+
+test('strips bold emphasis wrapping an answer value', () => {
+  // "1. **bold answer**" — the closing ** must not leak into rawAnswer
+  const r = parseNumberedAnswers('1. **bold answer**\n2. plain');
+  assert.equal(r[0].rawAnswer, 'bold answer');
+  assert.equal(r[1].rawAnswer, 'plain');
+});
+
+test('strips bold emphasis when answer contains an internal asterisk', () => {
+  // "1. **2*epsilon_o**" — internal * is math, outer ** is emphasis
+  const r = parseNumberedAnswers('1. **2*epsilon_o**\n2. B');
+  assert.equal(r[0].rawAnswer, '2*epsilon_o');
+  assert.equal(r[1].rawAnswer, 'B');
+});
+
+test('single-answer JSON array returns [] (too few answers to trust)', () => {
+  const r = parseNumberedAnswers(JSON.stringify([{ question_id: '1', answer: 'A' }]));
+  assert.deepEqual(r, []);
+});
+
+test('JSON with numeric (non-string) question_id', () => {
+  const r = parseNumberedAnswers(JSON.stringify([
+    { question_id: 1, answer: 'A' },
+    { question_id: 2, answer: 'B' },
+  ]));
+  assert.equal(r.length, 2);
+  assert.equal(r[0].questionNumber, 1);
+});
+
+test('parseOrderedLines: bare 11-line format', () => {
+  const raw =
+    '0.0539\n' +
+    '2*epsilon_o*E_o/r\n' +
+    '0\n' +
+    '-2k\n' +
+    '0\n' +
+    '15058.7876 V\n' +
+    '3.7647×10^5 N/C\n' +
+    '8.0000 μC/m²\n' +
+    '3.9789×10^-5 C/m²\n' +
+    'Diamagnetism\n' +
+    '300 m';
+  const r = parseOrderedLines(raw, 11);
+  assert.equal(r.length, 11);
+  assert.equal(r[0].rawAnswer, '0.0539');
+  assert.equal(r[1].rawAnswer, '2*epsilon_o*E_o/r');
+  assert.equal(r[7].rawAnswer, '8.0000 μC/m²');
+  assert.equal(r[8].rawAnswer, '3.9789×10^-5 C/m²');
+  assert.equal(r[9].rawAnswer, 'Diamagnetism');
+  assert.equal(r[10].rawAnswer, '300 m');
+});
+
+test('parseOrderedLines: strips "Final answers:" header and "Based on..." trailer', () => {
+  const raw =
+    'Final answers:\n\n' +
+    '0.0539\n' +
+    '2*epsilon_o*E_o/r\n' +
+    '0\n' +
+    '-2k\n' +
+    '0\n' +
+    '15058.7876 V\n' +
+    '3.7647×10^5 N/C\n' +
+    '8.0000 μC/m²\n' +
+    '3.9789×10^-5 C/m²\n' +
+    'Diamagnetism\n' +
+    '300 m\n\n' +
+    'Based on the uploaded question set.';
+  const r = parseOrderedLines(raw, 11);
+  assert.equal(r.length, 11);
+  assert.equal(r[0].rawAnswer, '0.0539');
+  assert.equal(r[10].rawAnswer, '300 m');
+});
+
+test('parseOrderedLines: count mismatch returns []', () => {
+  const r = parseOrderedLines('a\nb\nc', 11);
+  assert.deepEqual(r, []);
+});
+
+test('parseOrderedLines: missing expectedCount returns [] (no permissive mode)', () => {
+  assert.deepEqual(parseOrderedLines('a\nb', undefined), []);
+  assert.deepEqual(parseOrderedLines('a\nb', null), []);
+  assert.deepEqual(parseOrderedLines('a\nb', NaN), []);
+});
+
+test('parseOrderedLines: Windows line endings normalised', () => {
+  const r = parseOrderedLines('a\r\nb\r\nc', 3);
+  assert.equal(r.length, 3);
+  assert.equal(r[1].rawAnswer, 'b');
+});
+
+test('parseOrderedLines: empty / non-string returns []', () => {
+  assert.deepEqual(parseOrderedLines('', 5), []);
+  assert.deepEqual(parseOrderedLines(null, 5), []);
+});
+
+test('parseOrderedLines: blank lines between answers are skipped', () => {
+  const r = parseOrderedLines('a\n\nb\n\n\nc', 3);
+  assert.equal(r.length, 3);
+  assert.equal(r[2].rawAnswer, 'c');
+});
+
+test('parseOrderedLines: "Here are the answers:" header is stripped', () => {
+  const r = parseOrderedLines('Here are the answers:\nx\ny', 2);
+  assert.equal(r.length, 2);
+  assert.equal(r[0].rawAnswer, 'x');
+});
+
+test('parseAnswerSegments: letter segments with (A) (B) (C)', () => {
+  const r = numberedParser.parseAnswerSegments('(A) uncertainty, (B) fair, (C) 1');
+  assert.deepEqual(r, { kind: 'letters', items: [
+    { label: 'A', value: 'uncertainty' },
+    { label: 'B', value: 'fair' },
+    { label: 'C', value: '1' },
+  ]});
+});
+
+test('parseAnswerSegments: letter segments with A. B. C.', () => {
+  const r = numberedParser.parseAnswerSegments('A. apple, B. banana, C. cherry');
+  assert.equal(r.kind, 'letters');
+  assert.deepEqual(r.items.map(i => i.label), ['A', 'B', 'C']);
+  assert.deepEqual(r.items.map(i => i.value), ['apple', 'banana', 'cherry']);
+});
+
+test('parseAnswerSegments: letter segments tolerant of inner punctuation in value', () => {
+  const r = numberedParser.parseAnswerSegments('(A) N₀/2, (B) N₀W, (C) 2W, (D) W log₂(1 + P/N₀W)');
+  assert.equal(r.kind, 'letters');
+  assert.equal(r.items.length, 4);
+  assert.equal(r.items[3].value, 'W log₂(1 + P/N₀W)');
+});
+
+test('parseAnswerSegments: single (A) item is NOT segments (needs ≥2 distinct letters)', () => {
+  assert.equal(numberedParser.parseAnswerSegments('(A) only one'), null);
+});
+
+test('parseAnswerSegments: repeated letter "(A) x, (A) y" is NOT segments', () => {
+  assert.equal(numberedParser.parseAnswerSegments('(A) x, (A) y'), null);
+});
+
+test('parseAnswerSegments: sequence with en-dash separator', () => {
+  const r = numberedParser.parseAnswerSegments('Channel Encoding – Constellation Mapping – Waveform Mapping');
+  assert.deepEqual(r, { kind: 'sequence', items: [
+    { label: null, value: 'Channel Encoding' },
+    { label: null, value: 'Constellation Mapping' },
+    { label: null, value: 'Waveform Mapping' },
+  ]});
+});
+
+test('parseAnswerSegments: sequence with ≥ separator', () => {
+  const r = numberedParser.parseAnswerSegments('TDMA ≥ FDMA ≥ CDMA');
+  assert.equal(r.kind, 'sequence');
+  assert.deepEqual(r.items.map(i => i.value), ['TDMA', 'FDMA', 'CDMA']);
+});
+
+test('parseAnswerSegments: sequence with → separator', () => {
+  const r = numberedParser.parseAnswerSegments('first → second → third');
+  assert.equal(r.kind, 'sequence');
+  assert.equal(r.items.length, 3);
+});
+
+test('parseAnswerSegments: prose with single comma is NOT segments', () => {
+  assert.equal(numberedParser.parseAnswerSegments('one comma, two comma'), null);
+});
+
+test('parseAnswerSegments: long prose with no separators returns null', () => {
+  assert.equal(numberedParser.parseAnswerSegments('If users in different cells reuse the same frequency channels, the required bandwidth becomes much reduced.'), null);
+});
+
+test('parseAnswerSegments: returns null for empty / non-string', () => {
+  assert.equal(numberedParser.parseAnswerSegments(''), null);
+  assert.equal(numberedParser.parseAnswerSegments(null), null);
+  assert.equal(numberedParser.parseAnswerSegments(42), null);
+});
+
+test('parseAnswerSegments: letters beat sequence when both present', () => {
+  const r = numberedParser.parseAnswerSegments('(A) X – Y, (B) Z – W');
+  assert.equal(r.kind, 'letters');
+  assert.equal(r.items.length, 2);
+});
+
+test('parseNumberedAnswers: line-fallback annotates segments on each item', () => {
+  const raw = '(A) uncertainty, (B) fair, (C) 1\n(A) 2W, (B) infinite, (C) decreased, (D) increased\nprose with no separators here';
+  const out = numberedParser.parseNumberedAnswers(raw);
+  assert.equal(out.length, 3);
+  assert.ok(out[0].segments && out[0].segments.kind === 'letters');
+  assert.equal(out[0].segments.items.length, 3);
+  assert.ok(out[1].segments && out[1].segments.kind === 'letters');
+  assert.equal(out[1].segments.items.length, 4);
+  assert.equal(out[2].segments, undefined);
+});
+
+test('parseNumberedAnswers: numbered list also gets segment annotation', () => {
+  const raw = '1. (A) red, (B) blue\n2. plain answer\n3. X – Y – Z';
+  const out = numberedParser.parseNumberedAnswers(raw);
+  assert.equal(out.length, 3);
+  assert.equal(out[0].segments && out[0].segments.kind, 'letters');
+  assert.equal(out[1].segments, undefined);
+  assert.equal(out[2].segments && out[2].segments.kind, 'sequence');
+});
+
+// === Preamble + bare ordered lines (user-reported regression 2026-05-28) ===
+
+test('parseNumberedAnswers: "Final answers:" preamble + 10 bare lines yields 10 items numbered 1-10', () => {
+  const lines = ['uncertainty','2W','radio wave','N0/2','Channel Encoding','boundaries','True','MCS','orthogonal','TDMA'];
+  const raw = 'Final answers:\n\n' + lines.join('\n');
+  const out = parseNumberedAnswers(raw);
+  assert.equal(out.length, 10, 'preamble must be stripped, only 10 answers remain');
+  for (let i = 0; i < 10; i++) {
+    assert.equal(out[i].questionNumber, i + 1, 'question ' + (i + 1) + ' numbering');
+    assert.equal(out[i].rawAnswer, lines[i], 'question ' + (i + 1) + ' answer');
+  }
+});
+
+test('parseNumberedAnswers: no preamble — just 10 bare lines — yields 10 items', () => {
+  const lines = ['uncertainty','2W','radio wave','N0/2','Channel Encoding','boundaries','True','MCS','orthogonal','TDMA'];
+  const out = parseNumberedAnswers(lines.join('\n'));
+  assert.equal(out.length, 10);
+  assert.equal(out[0].rawAnswer, 'uncertainty');
+  assert.equal(out[9].rawAnswer, 'TDMA');
+});
+
+test('parseNumberedAnswers: "Here are my answers:" preamble + 10 bare lines yields 10 items', () => {
+  const lines = ['uncertainty','2W','radio wave','N0/2','Channel Encoding','boundaries','True','MCS','orthogonal','TDMA'];
+  const raw = 'Here are my answers:\n\n' + lines.join('\n');
+  const out = parseNumberedAnswers(raw);
+  assert.equal(out.length, 10);
+  assert.equal(out[0].rawAnswer, 'uncertainty');
+});
+
+test('parseNumberedAnswers: extra blank lines / CRLF between answers do not break ordering', () => {
+  const raw = 'Final answers:\r\n\r\n\r\nuncertainty\r\n\r\n2W\r\n\r\n\r\nradio wave\nN0/2\nChannel Encoding\nboundaries\nTrue\nMCS\northogonal\nTDMA';
+  const out = parseNumberedAnswers(raw);
+  assert.equal(out.length, 10);
+  assert.equal(out[0].rawAnswer, 'uncertainty');
+  assert.equal(out[9].rawAnswer, 'TDMA');
+});
+
+// === Option-enumeration shape (user-reported regression 2026-05-28) ===
+// A line that enumerates multiple options (e.g. "A: X B: Y C: Z") with no
+// commas/and separators provides no actionable selection signal. The parser
+// must flag such lines so the applier can refuse rather than guess.
+
+test('parseOrderedLines: 5-label enumeration "A: X B: Y C: Z D: W E: V" is flagged enumeration', () => {
+  const raw = 'A: Monopole B: Dipole C: PCB D: Feedhorn E: Cassegrain\nB';
+  const out = parseOrderedLines(raw, 2);
+  assert.equal(out.length, 2);
+  assert.equal(out[0].enumeration, true, 'line 1 must be flagged as option enumeration');
+  assert.equal(out[0].segments, undefined, 'enumeration line has no segments to fill');
+  // Bare "B" must NOT be flagged — it is a legit single-letter selection.
+  assert.equal(out[1].enumeration, undefined, 'bare "B" must not be flagged');
+});
+
+test('parseOrderedLines: 2-label enumeration "A: X B: Y" is also flagged enumeration', () => {
+  const raw = 'A: foo B: bar\nplain answer';
+  const out = parseOrderedLines(raw, 2);
+  assert.equal(out.length, 2);
+  assert.equal(out[0].enumeration, true, 'two-label enumeration still ambiguous → flag');
+  assert.equal(out[1].enumeration, undefined);
+});
+
+test('parseAnswerSegments: real letter-segment "(A) X, (B) Y" is NOT marked enumeration (commas → valid segments)', () => {
+  // The line is already returned as kind:'letters' segments — segments path
+  // wins, so the enumeration flag is irrelevant here. Make sure adding the
+  // enumeration helper did not accidentally hijack legit segments.
+  const r = numberedParser.parseAnswerSegments('(A) red, (B) blue');
+  assert.equal(r.kind, 'letters');
+});
+
+test('parseNumberedAnswers: lines containing commas, semicolons, and quotes are preserved verbatim', () => {
+  const lines = [
+    'a, b, c',
+    'one; two; three',
+    '"quoted answer"',
+    "it's a contraction",
+    'paren (inline) ok',
+    'mixed: x, y; z',
+    'plain word',
+    'another plain',
+    'final word',
+    'last',
+  ];
+  const out = parseNumberedAnswers(lines.join('\n'));
+  assert.equal(out.length, 10);
+  for (let i = 0; i < 10; i++) {
+    assert.equal(out[i].rawAnswer, lines[i], 'line ' + (i + 1) + ' preserved verbatim');
+  }
+});
+
+test('numbered-parser: accepts Q100 at the unified ceiling and rejects Q150 above it', () => {
+  const { parseNumberedAnswers } = require('../lib/numbered-parser.js');
+  const got = parseNumberedAnswers('100. Diamagnetism\n150. nope');
+  const nums = got.map(function (p) { return p.questionNumber; });
+  assert.ok(nums.indexOf(100) !== -1, 'Q100 must be accepted at the unified ceiling');
+  assert.ok(nums.indexOf(150) === -1, 'Q150 must be rejected above the unified ceiling');
+});

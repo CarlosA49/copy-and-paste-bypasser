@@ -553,3 +553,10 @@ test('cleanFillValue: prefix-only input returns "" (locks the empty-result contr
   assert.equal(cleanFillValue('Final:'), '');
   assert.equal(cleanFillValue('='), '');
 });
+
+test('answer-parser: NUMBER_PATTERN accepts Q100 at the ceiling and rejects Q150 above it', () => {
+  const { parseAnswerText } = require('../lib/answer-parser.js');
+  const got = parseAnswerText('Per option 100. And option 150.');
+  assert.ok(got.numbers.indexOf(100) !== -1, 'Q100 must be parsed at the unified ceiling');
+  assert.ok(got.numbers.indexOf(150) === -1, 'Q150 must be rejected above the unified ceiling');
+});
