@@ -1146,6 +1146,19 @@ test('answering-for-you: bare-line paste fallback fills via applyAnswers when le
     'must not show the legacy "no candidates" error; got: ' + JSON.stringify(status.textContent));
 });
 
+// === Task 8 — AI-answer warning copy reflects auto-submit + auto-resume ===
+
+test('Task 8: autopilot-ai-answer-warning mentions auto-submit and auto-resume, not "never submitted automatically"', () => {
+  const { shadow } = freshSidebar();
+  const el = shadow.querySelector('[data-role="autopilot-ai-answer-warning"]');
+  assert.ok(el, 'warning element must exist');
+  const txt = el.textContent;
+  assert.ok(/auto-submit/i.test(txt), 'warning must mention auto-submit; got: ' + JSON.stringify(txt));
+  assert.ok(/resume/i.test(txt), 'warning must mention resume/auto-resume; got: ' + JSON.stringify(txt));
+  assert.equal(/never submitted automatically/i.test(txt), false,
+    'warning must NOT say "never submitted automatically" (now false when Auto-submit is on)');
+});
+
 test('sidebar: aiAnswerAssessments toggle is key-gated, syncs, and emits', () => {
   const { sidebar, shadow, dom } = freshSidebar('https://www.coursera.org/learn/x/quiz/q/a');
   let emitted = null;
